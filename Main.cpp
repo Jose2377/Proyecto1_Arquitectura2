@@ -7,14 +7,6 @@
 
 using namespace std;
 
-// Convierte de hexa a binario
-string hex_str_to_bin_str(const string& hex)
-{
-    string bin;
-    for(unsigned i = 0; i != hex.length(); ++i)
-       bin += hex_char_to_bin(hex[i]);
-    return bin;
-}
 const char* hex_char_to_bin(char c)
 {
     switch(toupper(c))
@@ -37,6 +29,14 @@ const char* hex_char_to_bin(char c)
         case 'F': return "1111";
         default: return "0000";
     }
+}
+// Convierte de hexa a binario
+string hex_str_to_bin_str(const string& hex)
+{
+    string bin;
+    for(unsigned i = 0; i != hex.length(); ++i)
+       bin += hex_char_to_bin(hex[i]);
+    return bin;
 }
 
 // Convierte de hexa a decimal
@@ -67,8 +67,58 @@ class Interconect{
         // Alineada en 4 byts
         bool memoria[32][128]; 
     public:
-        string Write(){
+        Interconect(){
+            for (int i = 0; i < 32; ++i){
+                for (int j = 0; j < 128; ++j){
+                    memoria[i][j] = 0;
+                }
+            }
+        }
+        string Write(string DIR, string OBJ){
+            // Obtiene valores
+            int temp0 = DIR.length();
+            DIR.erase(temp0-1,1);
+            DIR.erase(0,2);
+
+            temp0 = stoi(DIR);
+            int L = temp0/128;
+            int C = temp0%128;
+
+            // Empieza a escribir en memoria cache
+            string temp1 = OBJ;
+            for (int i = 0; i < temp1.length(); ++i){
+                if (temp1[i] == 49){
+                    memoria[L][C] = 1;
+                } else
+                {
+                    memoria[L][C] = 0;
+                }
+                C++;
+                // Salta a la siguente linea en caso de overflow
+                if (C == 128){
+                    C = 0;
+                    L++;
+                }
+            }
             return "Exito";
+        }
+        void Result(){
+            ofstream MyFile("MemoryInterconnect.txt");
+            for (int i = 0; i < 32; ++i){
+                for (int j = 0; j < 128; ++j){
+                    if (memoria[i][j] == 0){
+                        MyFile << "0";
+                    }
+                    else {
+                        MyFile << "1";
+                    }
+                    if (j != 0 && j%8 == 0){
+                        MyFile << " ";
+                    }
+                }
+                MyFile << "\n";
+            }
+            MyFile.close();
         }
 };
 
@@ -121,7 +171,8 @@ class PE{
                         aux1 = mystring;
                         myfile >> mystring;
                         aux2 = mystring;
-                        INTERCONECT.Write();
+                        aux2 = ReadCache(aux2,aux1);
+                        INTERCONECT.Write(aux0,aux2);
                     }
                 }         
             }
@@ -173,10 +224,41 @@ class PE{
                 }
             }
         }
+        // Lee cache en address(DIR) la cantidad de bytes(OBJ)
+        string ReadCache(string DIR, string OBJ){
+            // Obtiene valores
+            DIR.erase(0,2);
+            int temp0 = OBJ.length();
+            OBJ.erase(temp0-1,1);
+            OBJ.erase(0,2);
+            temp0 = stoi(DIR);
+            int L = temp0/128;
+            int C = temp0%128;
+
+            // Empieza a leer en memoria cache
+            temp0 = hex_str_to_dec_int(OBJ);
+            string temp1 = "";
+            for (int i = 0; i < temp0*8; ++i){
+                if (memory[L][C] == 0){
+                    temp1.append("0");
+                }
+                else {
+                    temp1.append("1");
+                }
+                C++;
+                // Salta a la siguente linea en caso de overflow
+                if (C == 128){
+                    C = 0;
+                    L++;
+                }
+            }
+            return temp1;
+        }
 };
 
 int main(){
-    PE PE0(0,"0x00");
+    PE PE0(0,"0x00"); //NOMBRE_INSTANCIA(NUMERO_PE,PRIORIDAD)
     PE0.Ejecutar();
+    INTERCONECT.Result();
     return 0;
     }
