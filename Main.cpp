@@ -74,7 +74,9 @@ class Interconect{
                 }
             }
         }
-        string Write(string DIR, string OBJ){
+        // Escribe en memoria del interconect
+        // Escribe de DEST(PE), en la direccion (DIR) escribe el valor (OBJ), con valor de prioridad (PRIO)
+        string Write(string DEST, string DIR, string OBJ, string PRIO){
             // Obtiene valores
             int temp0 = DIR.length();
             DIR.erase(temp0-1,1);
@@ -100,8 +102,14 @@ class Interconect{
                     L++;
                 }
             }
-            return "Exito";
+
+            temp1 = "WRITE_RESP ";
+            temp1 = temp1 + DEST + ", ";
+            temp1 = temp1 + "0x1, ";
+            temp1 = temp1 + PRIO;
+            return temp1;
         }
+        // Imprime la memoria del Interconnect
         void Result(){
             ofstream MyFile("MemoryInterconnect.txt");
             for (int i = 0; i < 32; ++i){
@@ -130,6 +138,7 @@ class PE{
     private:
         int name;              // Nombre (0x00-0x07)
         string prioridad;      // Prioridad (0x00-0xFF)
+        string messages;       // Registro de mensajes
         bool memory[128][128]; // Memoria privada, 128 bloques de 16 bytes(128 bits)
     // Atributos publicos
     public:
@@ -143,6 +152,7 @@ class PE{
                     memory[i][j] = 0;
                 }
             }
+            string messages = "";
         }
         // Ejecucion de instrucciones
         void Ejecutar(){
@@ -157,6 +167,7 @@ class PE{
             if (myfile.is_open()) {     
                 while ( myfile.good() ) {
                     myfile >> mystring;
+                    KeepMessage(mystring + " ");
                     // Funcion de WRITE_CACHE (ADDRESS, VALUE)
                     if (mystring == "WRITE_CACHE"){
                         myfile >> mystring;
@@ -164,6 +175,8 @@ class PE{
                         myfile >> mystring;
                         aux1 = mystring;
                         WriteCache(aux0,aux1);
+                        KeepMessage(aux0 + " " + aux1 + "\n");
+                    // Funcion de WRITE_MEM (ADDRESS in memory, NUMBER_OF_BYTES, ADDRESS in cache)
                     } else if (mystring == "WRITE_MEM"){
                         myfile >> mystring;
                         aux0 = mystring;
@@ -171,8 +184,11 @@ class PE{
                         aux1 = mystring;
                         myfile >> mystring;
                         aux2 = mystring;
+                        KeepMessage(aux0 + " " + aux1 + " " + aux2 + "\n");
                         aux2 = ReadCache(aux2,aux1);
-                        INTERCONECT.Write(aux0,aux2);
+                        aux1 = "0x" + to_string(name);
+                        aux0 = INTERCONECT.Write(aux1,aux0,aux2,prioridad);
+                        KeepMessage(aux0 + "\n");
                     }
                 }         
             }
@@ -194,7 +210,16 @@ class PE{
                 MyFile << "\n";
             }
             MyFile.close();
+
+            ofstream MyFile2("MessagesPE"+to_string(name)+".txt");
+            MyFile2 << messages;
+            MyFile2.close();
         };
+
+        // Guarda los mensajes
+        void KeepMessage(string sended){
+            messages = messages + sended;
+        }
 
         // Funcion WRITE_CACHE, escribe en address(DIR) el valor (OBJ)
         void WriteCache(string DIR, string OBJ){

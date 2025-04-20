@@ -1,0 +1,15 @@
+{
+    "files.associations": {
+        "deque": "cpp",
+        "string": "cpp",
+        "unordered_map": "cpp",
+        "vector": "cpp",
+        "format": "cpp",
+        "iosfwd": "cpp",
+        "bitset": "cpp",
+        "string_view": "cpp",
+        "text_encoding": "cpp",
+        "typeinfo": "cpp",
+        "fstream": "cpp"
+    }
+}
