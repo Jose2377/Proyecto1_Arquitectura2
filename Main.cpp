@@ -95,14 +95,14 @@ class Interconect{
             temp1 = OBJ;
             for (int i = 0; i < temp1.length(); ++i){
                 if (temp1[i] == 49){
-                    memoria[L][C] = 1;
+                    memoria[C][L] = 1;
                 } else
                 {
-                    memoria[L][C] = 0;
+                    memoria[C][L] = 0;
                 }
                 C++;
                 // Salta a la siguente linea en caso de overflow
-                if (C == 128){
+                if (C == 32){
                     C = 0;
                     L++;
                 }
@@ -153,9 +153,9 @@ class Interconect{
         // Imprime la memoria y mensajes del Interconnect
         void Result(){
             ofstream MyFile("MemoryInterconnect.txt");
-            for (int i = 0; i < 32; ++i){
-                for (int j = 0; j < 128; ++j){
-                    if (memoria[i][j] == 0){
+            for (int i = 0; i < 128; ++i){
+                for (int j = 0; j < 32; ++j){
+                    if (memoria[j][i] == 0){
                         MyFile << "0";
                     }
                     else {
