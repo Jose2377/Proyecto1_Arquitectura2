@@ -6,7 +6,7 @@
 #include <bitset>
 #include <fstream>
 #include <string>
-#include <windows.h> // Libreria que contiene las funciones de Winapi
+#include <windows.h> 
 #include <tchar.h>
 
 #define NombreClase _T("Estilos");
@@ -117,6 +117,7 @@ class Interconect{
 
             temp1 = "WRITE_RESP " + DEST + ", 0x1, "+ PRIO + "\n";
             KeepMessage(temp1);
+            // Devuelve el mensaje de memoria
             return temp1;
         }
 
@@ -130,7 +131,7 @@ class Interconect{
             int L = temp0/128;
             int C = temp0%128;
 
-             // Empieza a leer en memoria cache
+             // Empieza a leer en memoria compartida
             temp0 = hex_str_to_dec_int(OBJ);
             temp1 = "";
             for (int i = 0; i < temp0*8; ++i){
@@ -149,6 +150,7 @@ class Interconect{
             }
             temp1 = "READ_RESP " + DEST + ", " + temp1 + ", " + PRIO + "\n";
             KeepMessage(temp1);
+            // Devuelve el valor de memoria compartida
             return temp1;
         }
 
@@ -180,7 +182,7 @@ class Interconect{
             MyFile2 << messages;
             MyFile2.close();
         }
-
+        //Reiniciar memoria
         void Reset(){
             messages = "";
             for (int i = 0; i < 32; ++i){
@@ -351,8 +353,10 @@ class PE{
                     L++;
                 }
             }
+            // Devuelve el valor de memoria cache
             return temp1;
         }
+        //Reiniciar memoria
         void Reset(){
             for (int i = 0; i < 128; ++i){
                 for (int j = 0; j < 128; ++j){
@@ -369,6 +373,7 @@ PE PE0(0,"0x00");
 /*  Declaramos una variable de tipo char para guardar el nombre de nuestra aplicacion  */
 HWND ventana1;           /* Manejador de la ventana*/
 HWND boton1;
+HWND boton2;
 MSG mensajecomunica;     /* Mensajes internos que se envian a la aplicacion */
 WNDCLASSEX estilo1;      /* Nombre de la clase para los estilos de ventana */
 
@@ -381,22 +386,24 @@ LRESULT CALLBACK WindowProcedure (HWND ventana1, UINT mensajecomunica, WPARAM wP
     {
         PAINTSTRUCT ps;
         HDC hdc;
-        case WM_CLOSE: /* Que hacer en caso de recibir el mensaje WM_CLOSE*/
-        DestroyWindow(ventana1); /* Destruir la ventana */
+        case WM_CLOSE:
+        DestroyWindow(ventana1); 
              break;
         case WM_DESTROY:
         PostQuitMessage(0);
             break;
         case WM_CREATE:
             boton1 = CreateWindowEx(0,_T("button"),_T("Ejecutar"),WS_VISIBLE|WS_CHILD,10,10,80,25,ventana1,(HMENU)1,0,0);
-            boton1 = CreateWindowEx(0,_T("button"),_T("Reiniciar"),WS_VISIBLE|WS_CHILD,100,10,80,25,ventana1,(HMENU)2,0,0);
+            boton2 = CreateWindowEx(0,_T("button"),_T("Reiniciar"),WS_VISIBLE|WS_CHILD,100,10,80,25,ventana1,(HMENU)2,0,0);
             break;
         case WM_COMMAND:
+            // Boton 1, ejecuta 1 instruccion
             if (wParam == 1){
                 PE0.Ejecutar();
                 INTERCONECT.Result();
                 instruction++;
             }
+            // Boton 2, reinicia memoria y empieza desde la primera instruccion
             else if (wParam == 2){
                 instruction = 0;
                 PE0.Reset();
@@ -437,15 +444,15 @@ int WINAPI WinMain (HINSTANCE hThisInstance,
 
     ventana1 = CreateWindowEx (
            0,
-           _T("Estilos"),         /* Nombre de la clase */
-           _T("Ventana"),       /* Titulo de la ventana */
+           _T("Estilos"),                 /* Nombre de la clase */
+           _T("Ventana"),                 /* Titulo de la ventana */
            WS_OVERLAPPEDWINDOW|WS_BORDER, /* Ventana por defecto */
-           400,       /* Posicion de la ventana en el eje X (de izquierda a derecha) */
-           70,       /* Posicion de la ventana, eje Y (arriba abajo) */
-           300,                 /* Ancho de la ventana */
-           100,                 /* Alto de la ventana */
+           400,                           /* Posicion de la ventana en el eje X (de izquierda a derecha) */
+           70,                            /* Posicion de la ventana, eje Y (arriba abajo) */
+           300,                           /* Ancho de la ventana */
+           100,                           /* Alto de la ventana */
            HWND_DESKTOP,
-           NULL,                /* Sin menu */
+           NULL,                          /* Sin menu */
            hThisInstance,
            NULL
            );
