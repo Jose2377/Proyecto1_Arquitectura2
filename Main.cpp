@@ -1,11 +1,18 @@
+//#define _WIN32_WINNT 0x0500 // Es necesaria esta definicion para esconder ventana de consola
+
 #include <iostream>
 #include <sstream>
 #include <cstdlib>
 #include <bitset>
 #include <fstream>
 #include <string>
+#include <windows.h> // Libreria que contiene las funciones de Winapi
+#include <tchar.h>
 
+#define NombreClase _T("Estilos");
 using namespace std;
+
+int instruction = 0;
 
 const char* hex_char_to_bin(char c)
 {
@@ -173,6 +180,15 @@ class Interconect{
             MyFile2 << messages;
             MyFile2.close();
         }
+
+        void Reset(){
+            messages = "";
+            for (int i = 0; i < 32; ++i){
+                for (int j = 0; j < 128; ++j){
+                    memoria[i][j] = 0;
+                }
+            }
+        }
 };
 
 Interconect INTERCONECT; // NOMBRE TEMPORAL
@@ -202,15 +218,19 @@ class PE{
         // Ejecucion de instrucciones
         void Ejecutar(){
             // Abre el archivo con las instrucciones correspondientes
-            ifstream myfile ("PE"+to_string(name)+".txt");
+            ifstream myfile("PE"+to_string(name)+".txt");
             string mystring;
             string aux0;
             string aux1;
             string aux2;
 
+            for (int i = 0; i < instruction; ++i){
+                getline(myfile,mystring);
+            }
+
             // Empieza a ejecutar las instrucciones
             if (myfile.is_open()) {     
-                while ( myfile.good() ) {
+                if ( myfile.good() ) {
                     myfile >> mystring;
                     KeepMessage(mystring + " ");
                     // Funcion de WRITE_CACHE (ADDRESS, VALUE)
@@ -333,11 +353,114 @@ class PE{
             }
             return temp1;
         }
+        void Reset(){
+            for (int i = 0; i < 128; ++i){
+                for (int j = 0; j < 128; ++j){
+                    memory[i][j] = 0;
+                }
+            }
+            string messages = "";
+        }
 };
 
-int main(){
-    PE PE0(0,"0x00"); //NOMBRE_INSTANCIA(NUMERO_PE,PRIORIDAD)
-    PE0.Ejecutar();
-    INTERCONECT.Result();
-    return 0;
+//Creacion PEs
+PE PE0(0,"0x00");
+
+/*  Declaramos una variable de tipo char para guardar el nombre de nuestra aplicacion  */
+HWND ventana1;           /* Manejador de la ventana*/
+HWND boton1;
+MSG mensajecomunica;     /* Mensajes internos que se envian a la aplicacion */
+WNDCLASSEX estilo1;      /* Nombre de la clase para los estilos de ventana */
+
+LRESULT CALLBACK WindowProcedure (HWND, UINT, WPARAM, LPARAM);
+
+LRESULT CALLBACK WindowProcedure (HWND ventana1, UINT mensajecomunica, WPARAM wParam, LPARAM lParam)
+{
+
+    switch (mensajecomunica) /* Manejamos los mensajes */
+    {
+        PAINTSTRUCT ps;
+        HDC hdc;
+        case WM_CLOSE: /* Que hacer en caso de recibir el mensaje WM_CLOSE*/
+        DestroyWindow(ventana1); /* Destruir la ventana */
+             break;
+        case WM_DESTROY:
+        PostQuitMessage(0);
+            break;
+        case WM_CREATE:
+            boton1 = CreateWindowEx(0,_T("button"),_T("Ejecutar"),WS_VISIBLE|WS_CHILD,10,10,80,25,ventana1,(HMENU)1,0,0);
+            boton1 = CreateWindowEx(0,_T("button"),_T("Reiniciar"),WS_VISIBLE|WS_CHILD,100,10,80,25,ventana1,(HMENU)2,0,0);
+            break;
+        case WM_COMMAND:
+            if (wParam == 1){
+                PE0.Ejecutar();
+                INTERCONECT.Result();
+                instruction++;
+            }
+            else if (wParam == 2){
+                instruction = 0;
+                PE0.Reset();
+                INTERCONECT.Reset();
+            }
+            break;
+        default:  /* Tratamiento por defecto para mensajes que no especificamos */
+            return DefWindowProc (ventana1, mensajecomunica, wParam, lParam);
     }
+return 0;
+}
+
+int WINAPI WinMain (HINSTANCE hThisInstance,
+                     HINSTANCE hPrevInstance,
+                     LPSTR lpszArgument,
+                     int nCmdShow)
+{
+
+    /* Creamos la estructura de la ventana indicando varias caracteristicas */
+    estilo1.hInstance = hThisInstance;
+    estilo1.lpszClassName = NombreClase;
+    estilo1.lpfnWndProc = WindowProcedure;
+    estilo1.style = CS_DBLCLKS;
+    estilo1.cbSize = sizeof (WNDCLASSEX);
+    estilo1.hIcon = LoadIcon (NULL, IDI_QUESTION);
+    estilo1.hIconSm = LoadIcon (NULL, IDI_INFORMATION);
+    estilo1.hCursor = LoadCursor (NULL, IDC_ARROW);
+    estilo1.lpszMenuName = NULL;   /* Sin Menu */
+    estilo1.cbClsExtra = 0;
+    estilo1.cbWndExtra = 0;
+    estilo1.hbrBackground = (HBRUSH) COLOR_WINDOW; /* Color del fondo de ventana */
+
+    /* Registramos la clase de la ventana */
+    if (!RegisterClassEx (&estilo1))
+        return 0;
+
+    /* Ahora creamos la ventana a partir de la clase anterior */
+
+    ventana1 = CreateWindowEx (
+           0,
+           _T("Estilos"),         /* Nombre de la clase */
+           _T("Ventana"),       /* Titulo de la ventana */
+           WS_OVERLAPPEDWINDOW|WS_BORDER, /* Ventana por defecto */
+           400,       /* Posicion de la ventana en el eje X (de izquierda a derecha) */
+           70,       /* Posicion de la ventana, eje Y (arriba abajo) */
+           300,                 /* Ancho de la ventana */
+           100,                 /* Alto de la ventana */
+           HWND_DESKTOP,
+           NULL,                /* Sin menu */
+           hThisInstance,
+           NULL
+           );
+
+    /* Hacemos que la ventana sea visible */
+    ShowWindow (ventana1, nCmdShow);
+    ShowWindow(GetConsoleWindow(), SW_HIDE ); // Funcion para esconder la ventana de consola
+
+    /* Hacemos que la ventan se ejecute hasta que se obtenga return 0 */
+    while (GetMessage (&mensajecomunica, NULL, 0, 0))
+    {
+        /* Traduce mensajes virtual-key */
+        TranslateMessage(&mensajecomunica);
+        /* Envia mensajes a WindowProcedure */
+        DispatchMessage(&mensajecomunica);
+    }
+    return mensajecomunica.wParam;
+}

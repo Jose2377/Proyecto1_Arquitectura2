@@ -10,6 +10,7 @@
         "string_view": "cpp",
         "text_encoding": "cpp",
         "typeinfo": "cpp",
-        "fstream": "cpp"
+        "fstream": "cpp",
+        "iostream": "cpp"
     }
 }
