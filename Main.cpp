@@ -99,6 +99,7 @@ class Interconect{
         // Escribe en memoria del interconect
         // Escribe de DEST(PE), en la direccion (DIR) escribe el valor (OBJ), con valor de prioridad (PRIO)
         string Write(string DEST, string DIR, string OBJ, string PRIO){
+            // Guarda la instruccion en los mensajes
             string temp1 = "WRITE_MEM " + DEST + ", " + DIR + " 0x" + bin_str_to_hex_str(OBJ) + ", " + PRIO + "\n";
             KeepMessage(temp1);
 
@@ -127,42 +128,52 @@ class Interconect{
                     L++;
                 }
             }
-
+            // Guarda la instruccion en los mensajes
             temp1 = "WRITE_RESP " + DEST + ", 0x1, "+ PRIO + "\n";
             KeepMessage(temp1);
+
             // Devuelve el mensaje de memoria
             return temp1;
         }
 
         string Read(string DEST, string DIR, string OBJ, string PRIO){
+            // Guarda la instruccion en los mensajes
             string temp1 = "READ_MEM " + DEST + ", " + DIR + ", " + OBJ + ", " + PRIO + "\n";
             KeepMessage(temp1);
+
             // Obtiene valores
+            DIR.erase(DIR.find(","));
             DIR.erase(0,2);
             OBJ.erase(0,2);
             int temp0 = stoi(DIR);
             int L = temp0/128;
             int C = temp0%128;
 
-             // Empieza a leer en memoria compartida
+            // Empieza a leer en memoria compartida
             temp0 = hex_str_to_dec_int(OBJ);
             temp1 = "";
             for (int i = 0; i < temp0*8; ++i){
-                if (memoria[L][C] == 0){
+                if (memoria[C][L] == 0){
                     temp1.append("0");
-                 }
-                 else {
-                     temp1.append("1");
+                }
+                else {
+                    temp1.append("1");
                 }
                 C++;
                 // Salta a la siguente linea en caso de overflow
-                if (C == 128){
+                if (C == 32){
                    C = 0;
                    L++;
                 }
             }
+            // TEMPORAL PARA PRUEBAS
+            cout << temp1 << endl;
+            cout << bin_str_to_hex_str(temp1) << endl;
+
+            // Guarda la instruccion en los mensajes
             temp1 = "READ_RESP " + DEST + ", 0x" + bin_str_to_hex_str(temp1) + ", " + PRIO + "\n";
             KeepMessage(temp1);
+
             // Devuelve el valor de memoria compartida
             return temp1;
         }
@@ -250,45 +261,86 @@ class PE{
                     KeepMessage(mystring + " ");
                     // Funcion de WRITE_CACHE (ADDRESS, VALUE)
                     if (mystring == "WRITE_CACHE"){
+                        // Obtiene valores necesarios de la instruccion
                         myfile >> mystring;
                         aux0 = mystring;
                         myfile >> mystring;
                         aux1 = mystring;
+
+                        // Guarda la instruccion en los mensajes
                         KeepMessage(aux0 + " " + aux1 + "\n");
+
+                        // Cambia de hexadecimal string a binario string
                         aux1.erase(0,2);
                         aux1 = hex_str_to_bin_str(aux1);
+
+                        // Escribe en cache
                         WriteCache(aux0, aux1);
+
                     // Funcion de WRITE_MEM (ADDRESS in memory, NUMBER_OF_BYTES, ADDRESS in cache)
                     } else if (mystring == "WRITE_MEM"){
+                        // Obtiene valores necesarios de la instruccion
                         myfile >> mystring;
                         aux0 = mystring;
                         myfile >> mystring;
                         aux1 = mystring;
                         myfile >> mystring;
                         aux2 = mystring;
+
+                        // Guarda la instruccion en los mensajes
                         KeepMessage(aux0 + " " + aux1 + " " + aux2 + "\n");
+
+                        // Prepara datos, al leer cache y obtener el SRC
                         aux2 = ReadCache(aux2, aux1);
                         aux1 = "0x" + to_string(name);
+
+                        // Envia el mensaje de escritura al Interconnect
                         aux0 = INTERCONECT.Write(aux1, aux0, aux2, prioridad);
+
+                        // Guarda la instruccion en los mensajes
                         KeepMessage(aux0);
-                    // Funcion de WRITE_MEM (ADDRESS in memory to cache)
+
+                    // Funcion de READ_MEM (ADDRESS in memory and cache)
                     } else if (mystring == "READ_MEM"){
+                        // Obtiene valores necesarios de la instruccion
                         myfile >> mystring;
-                        KeepMessage(mystring + "\n");
+                        aux2 = mystring;
+                        myfile >> mystring;
+
+                        // Guarda la instruccion en los mensajes
+                        KeepMessage(aux2 + " " + mystring + "\n");
+
+                        // Obtiene el SRC y envia el mensaje de lectura al Interconnect
                         aux1 = "0x" + to_string(name);
-                        aux0 = INTERCONECT.Read(aux1, mystring, "0x1", prioridad);
+                        aux0 = INTERCONECT.Read(aux1, aux2, mystring, prioridad);
+
+                        // Guarda la instruccion en los mensajes
                         KeepMessage(aux0);
+
+                        // Del mensaje, obtiene el valor a escribir
                         aux0.erase(0,aux0.find(",") + 4);
                         int temp = aux0.length() - aux0.find(",");
                         aux0.erase(aux0.find(","), temp);
                         aux0 = hex_str_to_bin_str(aux0);
+
+                        // TEMPORAL PARA PRUEBAS
+                        cout << aux0 << endl;
+                        cout << aux0.length() << endl;
+
+                        // Cantidad de bytes
+                        mystring.erase(0,2);
+                        temp = hex_str_to_dec_int(mystring);
+
+                        // Si el resultado de lectura es 0, se actualiza la cantidad de bits necesitados
                         if (aux0 == "0000"){   
                             aux0 = "";
-                            for (int i = 0; i<8; i++){
+                            for (int i = 0; i<8*temp; i++){
                                 aux0.append("0");
                             }
                         }
-                        WriteCache(mystring + ",", aux0);
+
+                        // Escribe en cahe
+                        WriteCache(aux2, aux0);
                     }
                 }         
             }
