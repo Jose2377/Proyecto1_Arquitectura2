@@ -1,14 +1,14 @@
 // Memory.cpp
 
 #include "Memory.hpp"
+
 #include <fstream>
 #include <iomanip>
-#include <iostream>
 
 Memory::Memory(const std::string& filename) : filename_(filename) {}
 
 void Memory::Initialize() {
-    mem_.resize(4096, 0x00000000);  // 4096 x 32 bits, inicializados a 0
+    mem_.resize(4096, 0x00000000);  // 4096 x 32 bits
     Save();
 }
 
@@ -22,6 +22,7 @@ void Memory::Write(uint32_t addr, uint32_t data) {
 uint32_t Memory::Read(uint32_t addr) {
     std::lock_guard<std::mutex> lock(mem_mutex_);
     if (addr / 4 >= mem_.size()) return 0;
+    Save();
     return mem_[addr / 4];
 }
 

@@ -3,10 +3,11 @@
 #include "Memory.hpp"
 #include "Interconnect.hpp"
 #include "ProcessorElement.hpp"
-#include <iostream>
+
 #include <vector>
 #include <memory>
 #include <thread>
+#include <iostream>
 
 int main() {
     try {
@@ -20,18 +21,16 @@ int main() {
             auto pe = std::make_unique<ProcessorElement>(i, &interconnect);
             pe->Initialize();
             pe->LoadInstructions();
+            interconnect.RegisterPE(i, pe.get());
             pes.push_back(std::move(pe));
         }
 
-        // Thread para el Interconnect
         std::thread interconnect_thread(&Interconnect::ProcessMessages, &interconnect);
 
-        // Ejecutar los PEs
         for (auto& pe : pes) {
             pe->Run();
         }
 
-        // Esperar a los PEs
         for (auto& pe : pes) {
             pe->Join();
         }

@@ -1,13 +1,16 @@
 // Interconnect.cpp
 
 #include "Interconnect.hpp"
+#include "ProcessorElement.hpp"
 
 #include <iostream>
-#include <thread>
-#include <chrono>
 
 Interconnect::Interconnect(Memory* memory) : memory_(memory), stop_flag_(false) {
     traffic_log_.open("./MEM_interconnect.txt", std::ios::out | std::ios::trunc);
+}
+
+void Interconnect::RegisterPE(int pe_id, ProcessorElement* pe) {
+    pe_registry_[pe_id] = pe;
 }
 
 void Interconnect::SendMessage(const Instruction& instr) {
@@ -29,21 +32,84 @@ void Interconnect::ProcessMessages() {
             message_queue_.pop();
             lock.unlock();
 
-            // Simula procesamiento
+            traffic_log_ << "Processing: " << instr.message_type
+            << " SRC: 0x" << std::hex << static_cast<int>(instr.src)
+            << " ADDR: 0x" << instr.addr << "\n";
+
             std::cout << "[Interconnect] Processing: " << instr.message_type << " from PE "
-            << std::hex << static_cast<int>(instr.src) << std::endl;
+            << static_cast<int>(instr.src) << std::endl;
 
             if (instr.message_type == "WRITE_MEM") {
-                memory_->Write(instr.addr, 0xDEADBEEF);  // Solo para probar
+                memory_->Write(instr.addr, 0xDEADBEEF);
+                Instruction resp = {
+                    .message_type = "WRITE_RESP",
+                    .src = 0,
+                    .dest = instr.src,
+                    .addr = 0,
+                    .size = 0,
+                    .start_cache_line = 0,
+                    .num_cache_lines = 0,
+                    .qos = instr.qos,
+                    .data = 0,
+                    .status = 0x1
+                };
+                pe_registry_[instr.src]->ReceiveMessage(resp);
             } else if (instr.message_type == "READ_MEM") {
-                memory_->Read(instr.addr);
+                uint32_t data = memory_->Read(instr.addr);
+                Instruction resp = {
+                    .message_type = "READ_RESP",
+                    .src = 0,
+                    .dest = instr.src,
+                    .addr = instr.addr,
+                    .size = 0,
+                    .start_cache_line = 0,
+                    .num_cache_lines = 0,
+                    .qos = instr.qos,
+                    .data = data,
+                    .status = 0
+                };
+                pe_registry_[instr.src]->ReceiveMessage(resp);
+            } else if (instr.message_type == "BROADCAST_INVALIDATE") {
+                waiting_for_invacks_ = true;
+                expected_invacks_ = pe_registry_.size();
+                received_invacks_ = 0;
+                inv_origin_ = instr.src;
+                for (auto& [id, pe] : pe_registry_) {
+                    if (id != instr.src) {
+                        Instruction inv = {
+                            .message_type = "INV_ACK",
+                            .src = static_cast<uint8_t>(id),
+                            .dest = 0,
+                            .addr = 0,
+                            .size = 0,
+                            .start_cache_line = 0,
+                            .num_cache_lines = 0,
+                            .qos = instr.qos,
+                            .data = 0,
+                            .status = 0
+                        };
+                        SendMessage(inv);
+                    }
+                }
+            } else if (instr.message_type == "INV_ACK") {
+                ++received_invacks_;
+                if (waiting_for_invacks_ && received_invacks_ >= expected_invacks_ - 1) {
+                    Instruction complete = {
+                        .message_type = "INV_COMPLETE",
+                        .src = 0,
+                        .dest = static_cast<uint8_t>(inv_origin_),
+                        .addr = 0,
+                        .size = 0,
+                        .start_cache_line = 0,
+                        .num_cache_lines = 0,
+                        .qos = instr.qos,
+                        .data = 0,
+                        .status = 0
+                    };
+                    pe_registry_[inv_origin_]->ReceiveMessage(complete);
+                    waiting_for_invacks_ = false;
+                }
             }
-
-            traffic_log_ << "SRC: 0x" << std::hex << static_cast<int>(instr.src)
-            << " TYPE: " << instr.message_type
-            << " ADDR: 0x" << instr.addr
-            << " SIZE: 0x" << instr.size
-            << " QoS: 0x" << static_cast<int>(instr.qos) << "\n";
         }
     }
 }

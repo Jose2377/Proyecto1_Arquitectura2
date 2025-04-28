@@ -2,7 +2,7 @@
 
 CC = g++
 CFLAGS = -std=c++20 -Wall -I. -pthread
-SRCS = main.cpp ProcessorElement.cpp Memory.cpp Interconnect.cpp
+SRCS = main.cpp ProcessorElement.cpp Memory.cpp Interconnect.cpp Cache.cpp
 OBJS = $(SRCS:.cpp=.o)
 EXEC = simulator
 PE_DIRS = PE0 PE1  # Directorios necesarios para los PEs
