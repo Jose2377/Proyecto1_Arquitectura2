@@ -67,6 +67,19 @@ int hex_str_to_dec_int(string hexVal)
     return dec_val; 
 } 
 
+// Función para convertir un número binario a hexadecimal
+string bin_str_to_hex_str(string binario) {
+    // Convertir el binario a decimal
+    bitset<32> bits(binario); // asumimos que el tamaño máximo es 32 bits
+    unsigned long decimal = bits.to_ulong();
+
+    // Convertir el decimal a hexadecimal
+    char hexadecimal[100]; // suficientemente grande para almacenar el resultado
+    sprintf(hexadecimal, "%lX", decimal);
+
+    return string(hexadecimal);
+}
+
 // Clase para el Interconect
 class Interconect{
     private: 
@@ -86,7 +99,7 @@ class Interconect{
         // Escribe en memoria del interconect
         // Escribe de DEST(PE), en la direccion (DIR) escribe el valor (OBJ), con valor de prioridad (PRIO)
         string Write(string DEST, string DIR, string OBJ, string PRIO){
-            string temp1 = "WRITE_MEM " + DEST + ", " + DIR + " " + OBJ + ", " + PRIO + "\n";
+            string temp1 = "WRITE_MEM " + DEST + ", " + DIR + " 0x" + bin_str_to_hex_str(OBJ) + ", " + PRIO + "\n";
             KeepMessage(temp1);
 
             // Obtiene valores
@@ -148,7 +161,7 @@ class Interconect{
                    L++;
                 }
             }
-            temp1 = "READ_RESP " + DEST + ", " + temp1 + ", " + PRIO + "\n";
+            temp1 = "READ_RESP " + DEST + ", 0x" + bin_str_to_hex_str(temp1) + ", " + PRIO + "\n";
             KeepMessage(temp1);
             // Devuelve el valor de memoria compartida
             return temp1;
@@ -265,7 +278,17 @@ class PE{
                         aux1 = "0x" + to_string(name);
                         aux0 = INTERCONECT.Read(aux1, mystring, "0x1", prioridad);
                         KeepMessage(aux0);
-                        //WriteCache(mystring, aux0);
+                        aux0.erase(0,aux0.find(",") + 4);
+                        int temp = aux0.length() - aux0.find(",");
+                        aux0.erase(aux0.find(","), temp);
+                        aux0 = hex_str_to_bin_str(aux0);
+                        if (aux0 == "0000"){   
+                            aux0 = "";
+                            for (int i = 0; i<8; i++){
+                                aux0.append("0");
+                            }
+                        }
+                        WriteCache(mystring + ",", aux0);
                     }
                 }         
             }
@@ -363,12 +386,12 @@ class PE{
                     memory[i][j] = 0;
                 }
             }
-            string messages = "";
+            messages = "";
         }
 };
 
 //Creacion PEs
-PE PE0(0,"0x00");
+PE PE0(0,"0x0");
 
 /*  Declaramos una variable de tipo char para guardar el nombre de nuestra aplicacion  */
 HWND ventana1;           /* Manejador de la ventana*/
