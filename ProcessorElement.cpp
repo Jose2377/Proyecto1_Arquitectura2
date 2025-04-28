@@ -32,8 +32,6 @@ void ProcessorElement::LoadInstructions() {
     std::string line;
     while (std::getline(file, line)) {
         if (line.empty()) continue;  // Evitar líneas vacías
-        std::cout << "[DEBUG] Cargando línea: [" << line << "]" << std::endl;  // 👈 ADD ESTO
-
 
         std::istringstream iss(line);
         Instruction instr;
@@ -56,7 +54,6 @@ void ProcessorElement::LoadInstructions() {
 
                 instr.src = static_cast<uint8_t>(std::stoul(src_hex, nullptr, 16));
                 instr.qos = static_cast<uint8_t>(std::stoul(qos_hex, nullptr, 16));
-
             } else if (instr.message_type == "BROADCAST_INVALIDATE") {
                 std::string src_hex, addr_hex, size_hex; // Only 3 parameters
                 iss >> src_hex >> addr_hex >> size_hex;
@@ -101,6 +98,15 @@ void ProcessorElement::ReceiveMessage(const Instruction& instr) {
         << (instr.status == 0x1 ? "OK" : "NOT_OK") << "\n";
     } else if (instr.message_type == "INV_COMPLETE") {
         std::cout << "[PE" << id_ << "] Received INV_COMPLETE\n";
+    } else if (instr.message_type == "BROADCAST_INVALIDATE") {
+        // Al recibir un Broadcast, mandar un INV_ACK automáticamente
+        Instruction ack = {
+            .message_type = "INV_ACK",
+            .src = static_cast<uint8_t>(id_),
+            .qos = instr.qos
+        };
+        interconnect_->SendMessage(ack);
+        std::cout << "[PE" << id_ << "] Received BROADCAST_INVALIDATE, sending INV_ACK\n";
     }
 }
 

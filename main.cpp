@@ -11,13 +11,37 @@
 
 int main() {
     try {
+        std::cout << "Seleccione modo de calendarización:\n";
+        std::cout << "0 - FIFO\n";
+        std::cout << "1 - QoS\n";
+        std::cout << "2 - Salir\n";
+        int option = -1;
+        std::cin >> option;
+
+        if (option == 2) {
+            std::cout << "Saliendo.\n";
+            return 0;
+        }
+
+        SchedulingMode mode;
+        if (option == 0) {
+            mode = SchedulingMode::FIFO;
+            std::cout << "Calendarización seleccionada: FIFO\n";
+        } else if (option == 1) {
+            mode = SchedulingMode::QoS;
+            std::cout << "Calendarización seleccionada: QoS\n";
+        } else {
+            std::cerr << "Opción inválida.\n";
+            return 1;
+        }
+
         Memory memory("./MEM.txt");
         memory.Initialize();
 
-        Interconnect interconnect(&memory);
+        Interconnect interconnect(&memory, mode);
 
         std::vector<std::unique_ptr<ProcessorElement>> pes;
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 4; ++i) {
             auto pe = std::make_unique<ProcessorElement>(i, &interconnect);
             pe->Initialize();
             pe->LoadInstructions();

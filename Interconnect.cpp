@@ -4,8 +4,10 @@
 #include "ProcessorElement.hpp"
 
 #include <iostream>
+#include <algorithm>
 
-Interconnect::Interconnect(Memory* memory) : memory_(memory), stop_flag_(false) {
+Interconnect::Interconnect(Memory* memory, SchedulingMode mode)
+: memory_(memory), stop_flag_(false), mode_(mode) {
     traffic_log_.open("./MEM_interconnect.txt", std::ios::out | std::ios::trunc);
 }
 
@@ -16,7 +18,7 @@ void Interconnect::RegisterPE(int pe_id, ProcessorElement* pe) {
 void Interconnect::SendMessage(const Instruction& instr) {
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
-        message_queue_.push(instr);
+        message_queue_.push_back(instr);
         ++total_messages_;
     }
     cv_.notify_one();
@@ -28,8 +30,19 @@ void Interconnect::ProcessMessages() {
         cv_.wait(lock, [this]() { return !message_queue_.empty() || stop_flag_; });
 
         if (!message_queue_.empty()) {
-            Instruction instr = message_queue_.front();
-            message_queue_.pop();
+            // ✨ Aquí decidimos FIFO o QoS
+            Instruction instr;
+            if (mode_ == SchedulingMode::FIFO) {
+                instr = message_queue_.front();
+                message_queue_.erase(message_queue_.begin());
+            } else { // QoS
+                auto it = std::max_element(message_queue_.begin(), message_queue_.end(),
+                                           [](const Instruction& a, const Instruction& b) {
+                                               return a.qos < b.qos; // mayor primero
+                                           });
+                instr = *it;
+                message_queue_.erase(it);
+            }
             lock.unlock();
 
             traffic_log_ << "Processing: " << instr.message_type
@@ -45,12 +58,7 @@ void Interconnect::ProcessMessages() {
                     .message_type = "WRITE_RESP",
                     .src = 0,
                     .dest = instr.src,
-                    .addr = 0,
-                    .size = 0,
-                    .start_cache_line = 0,
-                    .num_cache_lines = 0,
                     .qos = instr.qos,
-                    .data = 0,
                     .status = 0x1
                 };
                 pe_registry_[instr.src]->ReceiveMessage(resp);
@@ -61,12 +69,8 @@ void Interconnect::ProcessMessages() {
                     .src = 0,
                     .dest = instr.src,
                     .addr = instr.addr,
-                    .size = 0,
-                    .start_cache_line = 0,
-                    .num_cache_lines = 0,
                     .qos = instr.qos,
-                    .data = data,
-                    .status = 0
+                    .data = data
                 };
                 pe_registry_[instr.src]->ReceiveMessage(resp);
             } else if (instr.message_type == "BROADCAST_INVALIDATE") {
@@ -76,19 +80,13 @@ void Interconnect::ProcessMessages() {
                 inv_origin_ = instr.src;
                 for (auto& [id, pe] : pe_registry_) {
                     if (id != instr.src) {
-                        Instruction inv = {
-                            .message_type = "INV_ACK",
-                            .src = static_cast<uint8_t>(id),
-                            .dest = 0,
-                            .addr = 0,
-                            .size = 0,
-                            .start_cache_line = 0,
-                            .num_cache_lines = 0,
-                            .qos = instr.qos,
-                            .data = 0,
-                            .status = 0
+                        Instruction broadcast = {
+                            .message_type = "BROADCAST_INVALIDATE",
+                            .src = instr.src,
+                            .dest = static_cast<uint8_t>(id),
+                            .qos = instr.qos
                         };
-                        SendMessage(inv);
+                        pe->ReceiveMessage(broadcast);
                     }
                 }
             } else if (instr.message_type == "INV_ACK") {
@@ -98,13 +96,7 @@ void Interconnect::ProcessMessages() {
                         .message_type = "INV_COMPLETE",
                         .src = 0,
                         .dest = static_cast<uint8_t>(inv_origin_),
-                        .addr = 0,
-                        .size = 0,
-                        .start_cache_line = 0,
-                        .num_cache_lines = 0,
-                        .qos = instr.qos,
-                        .data = 0,
-                        .status = 0
+                        .qos = instr.qos
                     };
                     pe_registry_[inv_origin_]->ReceiveMessage(complete);
                     waiting_for_invacks_ = false;
