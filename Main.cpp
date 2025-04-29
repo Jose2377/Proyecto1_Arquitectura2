@@ -6,13 +6,15 @@
 #include <bitset>
 #include <fstream>
 #include <string>
-#include <windows.h> 
-#include <tchar.h>
+#include <vector>
+#include <thread>
+#include <mutex>
 
-#define NombreClase _T("Estilos");
 using namespace std;
 
-int instruction = 0;
+int total_instruction = 0;
+mutex instruction_mtx;
+mutex interconnect_mtx;
 
 const char* hex_char_to_bin(char c)
 {
@@ -84,8 +86,8 @@ string bin_str_to_hex_str(string binario) {
 class Interconect{
     private: 
         string messages;
-        //Memoria Compartida, 4096 memoria total (32 bits de ancho x 128 de largo)
-        // Alineada en 4 byts
+        // Memoria Compartida, 4096 memoria total
+        // Alineada en 4 byts (32 bits)
         bool memoria[32][128]; 
     public:
         Interconect(){
@@ -99,6 +101,8 @@ class Interconect{
         // Escribe en memoria del interconect
         // Escribe de DEST(PE), en la direccion (DIR) escribe el valor (OBJ), con valor de prioridad (PRIO)
         string Write(string DEST, string DIR, string OBJ, string PRIO){
+            lock_guard<mutex> lock(interconnect_mtx);
+
             // Guarda la instruccion en los mensajes
             string temp1 = "WRITE_MEM " + DEST + ", " + DIR + " 0x" + bin_str_to_hex_str(OBJ) + ", " + PRIO + "\n";
             KeepMessage(temp1);
@@ -108,13 +112,15 @@ class Interconect{
             DIR.erase(temp0-1,1);
             DIR.erase(0,2);
 
-            temp0 = stoi(DIR);
+
+
+            temp0 = hex_str_to_dec_int(DIR);
             int L = temp0/128;
             int C = temp0%128;
 
             // Empieza a escribir en memoria cache
             temp1 = OBJ;
-            for (int i = 0; i < temp1.length(); ++i){
+            for (size_t i = 0; i < temp1.length(); ++i) {
                 if (temp1[i] == 49){
                     memoria[C][L] = 1;
                 } else
@@ -137,6 +143,8 @@ class Interconect{
         }
 
         string Read(string DEST, string DIR, string OBJ, string PRIO){
+            lock_guard<mutex> lock(interconnect_mtx);
+
             // Guarda la instruccion en los mensajes
             string temp1 = "READ_MEM " + DEST + ", " + DIR + ", " + OBJ + ", " + PRIO + "\n";
             KeepMessage(temp1);
@@ -152,7 +160,7 @@ class Interconect{
             // Empieza a leer en memoria compartida
             temp0 = hex_str_to_dec_int(OBJ);
             temp1 = "";
-            for (int i = 0; i < temp0*8; ++i){
+            for (size_t i = 0; i < temp1.length(); ++i) {
                 if (memoria[C][L] == 0){
                     temp1.append("0");
                 }
@@ -166,9 +174,6 @@ class Interconect{
                    L++;
                 }
             }
-            // TEMPORAL PARA PRUEBAS
-            cout << temp1 << endl;
-            cout << bin_str_to_hex_str(temp1) << endl;
 
             // Guarda la instruccion en los mensajes
             temp1 = "READ_RESP " + DEST + ", 0x" + bin_str_to_hex_str(temp1) + ", " + PRIO + "\n";
@@ -194,7 +199,7 @@ class Interconect{
                     else {
                         MyFile << "1";
                     }
-                    if (j != 0 && j%8 == 0){
+                    if (j != 0 && (j+1)%8 == 0){
                         MyFile << " ";
                     }
                 }
@@ -227,6 +232,7 @@ class PE{
         string prioridad;      // Prioridad (0x00-0xFF)
         string messages;       // Registro de mensajes
         bool memory[128][128]; // Memoria privada, 128 bloques de 16 bytes(128 bits)
+        int instruction;       // Instruccion actual
     // Atributos publicos
     public:
     // Constructor
@@ -240,11 +246,12 @@ class PE{
                 }
             }
             string messages = "";
+            instruction = 0;
         }
         // Ejecucion de instrucciones
-        void Ejecutar(){
-            // Abre el archivo con las instrucciones correspondientes
-            ifstream myfile("PE"+to_string(name)+".txt");
+        void Ejecutar() {
+            lock_guard<mutex> lock(instruction_mtx);
+            ifstream myfile("PE"+to_string(name)+".txt"); // <-- Única declaración
             string mystring;
             string aux0;
             string aux1;
@@ -323,10 +330,6 @@ class PE{
                         aux0.erase(aux0.find(","), temp);
                         aux0 = hex_str_to_bin_str(aux0);
 
-                        // TEMPORAL PARA PRUEBAS
-                        cout << aux0 << endl;
-                        cout << aux0.length() << endl;
-
                         // Cantidad de bytes
                         mystring.erase(0,2);
                         temp = hex_str_to_dec_int(mystring);
@@ -355,7 +358,7 @@ class PE{
                     else {
                         MyFile << "1";
                     }
-                    if (j != 0 && j%8 == 0){
+                    if (j != 0 && (j+1)%8 == 0){
                         MyFile << " ";
                     }
                 }
@@ -366,6 +369,8 @@ class PE{
             ofstream MyFile2("MessagesPE"+to_string(name)+".txt");
             MyFile2 << messages;
             MyFile2.close();
+
+            instruction++;
         };
 
         // Guarda los mensajes
@@ -385,7 +390,7 @@ class PE{
 
             // Empieza a escribir en memoria cache
             string temp1 = OBJ;
-            for (int i = 0; i < temp1.length(); ++i){
+            for (size_t  i = 0; i < temp1.length(); ++i){
                 if (temp1[i] == 49){ // 49 = "1" en ascci
                     memory[L][C] = 1;
                 } else
@@ -442,107 +447,51 @@ class PE{
         }
 };
 
-//Creacion PEs
-PE PE0(0,"0x0");
+// Creación de 8 PEs
+PE PE0(0, "0x0");
+PE PE1(1, "0x1");
+PE PE2(2, "0x2");
+PE PE3(3, "0x3");
+PE PE4(4, "0x4");
+PE PE5(5, "0x5");
+PE PE6(6, "0x6");
+PE PE7(7, "0x7");
 
-/*  Declaramos una variable de tipo char para guardar el nombre de nuestra aplicacion  */
-HWND ventana1;           /* Manejador de la ventana*/
-HWND boton1;
-HWND boton2;
-MSG mensajecomunica;     /* Mensajes internos que se envian a la aplicacion */
-WNDCLASSEX estilo1;      /* Nombre de la clase para los estilos de ventana */
-
-LRESULT CALLBACK WindowProcedure (HWND, UINT, WPARAM, LPARAM);
-
-LRESULT CALLBACK WindowProcedure (HWND ventana1, UINT mensajecomunica, WPARAM wParam, LPARAM lParam)
-{
-
-    switch (mensajecomunica) /* Manejamos los mensajes */
-    {
-        PAINTSTRUCT ps;
-        HDC hdc;
-        case WM_CLOSE:
-        DestroyWindow(ventana1); 
-             break;
-        case WM_DESTROY:
-        PostQuitMessage(0);
-            break;
-        case WM_CREATE:
-            boton1 = CreateWindowEx(0,_T("button"),_T("Ejecutar"),WS_VISIBLE|WS_CHILD,10,10,80,25,ventana1,(HMENU)1,0,0);
-            boton2 = CreateWindowEx(0,_T("button"),_T("Reiniciar"),WS_VISIBLE|WS_CHILD,100,10,80,25,ventana1,(HMENU)2,0,0);
-            break;
-        case WM_COMMAND:
-            // Boton 1, ejecuta 1 instruccion
-            if (wParam == 1){
-                PE0.Ejecutar();
-                INTERCONECT.Result();
-                instruction++;
-            }
-            // Boton 2, reinicia memoria y empieza desde la primera instruccion
-            else if (wParam == 2){
-                instruction = 0;
-                PE0.Reset();
-                INTERCONECT.Reset();
-            }
-            break;
-        default:  /* Tratamiento por defecto para mensajes que no especificamos */
-            return DefWindowProc (ventana1, mensajecomunica, wParam, lParam);
+void pe_thread(PE& pe) {
+    for (int i = 0; i < 10; ++i) {  // Ejecuta 10 instrucciones por PE
+        pe.Ejecutar();
+        {
+            lock_guard<mutex> lock(instruction_mtx);
+            total_instruction++;
+        }
     }
-return 0;
 }
 
-int WINAPI WinMain (HINSTANCE hThisInstance,
-                     HINSTANCE hPrevInstance,
-                     LPSTR lpszArgument,
-                     int nCmdShow)
-{
+int main() {
+    vector<thread> pe_threads;
 
-    /* Creamos la estructura de la ventana indicando varias caracteristicas */
-    estilo1.hInstance = hThisInstance;
-    estilo1.lpszClassName = NombreClase;
-    estilo1.lpfnWndProc = WindowProcedure;
-    estilo1.style = CS_DBLCLKS;
-    estilo1.cbSize = sizeof (WNDCLASSEX);
-    estilo1.hIcon = LoadIcon (NULL, IDI_QUESTION);
-    estilo1.hIconSm = LoadIcon (NULL, IDI_INFORMATION);
-    estilo1.hCursor = LoadCursor (NULL, IDC_ARROW);
-    estilo1.lpszMenuName = NULL;   /* Sin Menu */
-    estilo1.cbClsExtra = 0;
-    estilo1.cbWndExtra = 0;
-    estilo1.hbrBackground = (HBRUSH) COLOR_WINDOW; /* Color del fondo de ventana */
+    // Lanzar todos los PEs en hilos
+    pe_threads.emplace_back(pe_thread, ref(PE0));
+    pe_threads.emplace_back(pe_thread, ref(PE1));
+    pe_threads.emplace_back(pe_thread, ref(PE2));
+    pe_threads.emplace_back(pe_thread, ref(PE3));
+    pe_threads.emplace_back(pe_thread, ref(PE4));
+    pe_threads.emplace_back(pe_thread, ref(PE5));
+    pe_threads.emplace_back(pe_thread, ref(PE6));
+    pe_threads.emplace_back(pe_thread, ref(PE7));
 
-    /* Registramos la clase de la ventana */
-    if (!RegisterClassEx (&estilo1))
-        return 0;
-
-    /* Ahora creamos la ventana a partir de la clase anterior */
-
-    ventana1 = CreateWindowEx (
-           0,
-           _T("Estilos"),                 /* Nombre de la clase */
-           _T("Ventana"),                 /* Titulo de la ventana */
-           WS_OVERLAPPEDWINDOW|WS_BORDER, /* Ventana por defecto */
-           400,                           /* Posicion de la ventana en el eje X (de izquierda a derecha) */
-           70,                            /* Posicion de la ventana, eje Y (arriba abajo) */
-           300,                           /* Ancho de la ventana */
-           100,                           /* Alto de la ventana */
-           HWND_DESKTOP,
-           NULL,                          /* Sin menu */
-           hThisInstance,
-           NULL
-           );
-
-    /* Hacemos que la ventana sea visible */
-    ShowWindow (ventana1, nCmdShow);
-    ShowWindow(GetConsoleWindow(), SW_HIDE ); // Funcion para esconder la ventana de consola
-
-    /* Hacemos que la ventan se ejecute hasta que se obtenga return 0 */
-    while (GetMessage (&mensajecomunica, NULL, 0, 0))
-    {
-        /* Traduce mensajes virtual-key */
-        TranslateMessage(&mensajecomunica);
-        /* Envia mensajes a WindowProcedure */
-        DispatchMessage(&mensajecomunica);
+    // Esperar a que terminen todos los hilos
+    for (auto& t : pe_threads) {
+        t.join();
     }
-    return mensajecomunica.wParam;
+
+    // Generar resultados finales
+    INTERCONECT.Result();
+    
+    // Escribir estadísticas adicionales
+    cout << "Simulacion completada. Total de instrucciones ejecutadas: " << total_instruction << endl;
+    cout << "Resultados guardados en MemoryInterconnect.txt y MessagesInterconnect.txt" << endl;
+    cout << "Version: " << __cplusplus << endl;
+
+    return 0;
 }
