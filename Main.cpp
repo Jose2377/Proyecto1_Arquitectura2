@@ -1,6 +1,7 @@
 //#define _WIN32_WINNT 0x0500 // Es necesaria esta definicion para esconder ventana de consola
 
 #include <iostream>
+#include <conio.h>
 #include <sstream>
 #include <cstdlib>
 #include <bitset>
@@ -9,6 +10,7 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <windows.h>
 
 using namespace std;
 
@@ -458,31 +460,47 @@ PE PE6(6, "0x6");
 PE PE7(7, "0x7");
 
 void pe_thread(PE& pe) {
-    for (int i = 0; i < 10; ++i) {  // Ejecuta 10 instrucciones por PE
-        pe.Ejecutar();
-        {
-            lock_guard<mutex> lock(instruction_mtx);
-            total_instruction++;
-        }
+    pe.Ejecutar();
+    {
+        lock_guard<mutex> lock(instruction_mtx);
+        total_instruction++;
     }
 }
 
 int main() {
     vector<thread> pe_threads;
-
-    // Lanzar todos los PEs en hilos
-    pe_threads.emplace_back(pe_thread, ref(PE0));
-    pe_threads.emplace_back(pe_thread, ref(PE1));
-    pe_threads.emplace_back(pe_thread, ref(PE2));
-    pe_threads.emplace_back(pe_thread, ref(PE3));
-    pe_threads.emplace_back(pe_thread, ref(PE4));
-    pe_threads.emplace_back(pe_thread, ref(PE5));
-    pe_threads.emplace_back(pe_thread, ref(PE6));
-    pe_threads.emplace_back(pe_thread, ref(PE7));
-
+    
     // Esperar a que terminen todos los hilos
-    for (auto& t : pe_threads) {
-        t.join();
+    cout << "Listo" << endl;
+    try {
+        int i = 0;
+        while (i < 10) {
+            if (kbhit()){
+                // Lanzar todos los PEs en hilos
+                pe_threads.emplace_back(pe_thread, ref(PE0));
+                pe_threads.emplace_back(pe_thread, ref(PE1));
+                pe_threads.emplace_back(pe_thread, ref(PE2));
+                pe_threads.emplace_back(pe_thread, ref(PE3));
+                pe_threads.emplace_back(pe_thread, ref(PE4));
+                pe_threads.emplace_back(pe_thread, ref(PE5));
+                pe_threads.emplace_back(pe_thread, ref(PE6));
+                pe_threads.emplace_back(pe_thread, ref(PE7));
+
+                //for (auto& t : pe_threads) {
+                //    t.join();
+                //}
+
+                cout << "Ejecutando" << endl; 
+                cout << getch() << endl;
+                i++;
+                Sleep(1000);
+            }
+        }
+    } catch(const std::system_error& e)
+    {
+        std::cout << "Caught system_error with code "
+                    "[" << e.code() << "] meaning "
+                    "[" << e.what() << "]\n";
     }
 
     // Generar resultados finales
