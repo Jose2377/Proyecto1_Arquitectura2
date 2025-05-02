@@ -11,12 +11,17 @@
 #include <thread>
 #include <mutex>
 #include <windows.h>
+#include <queue>
 
 using namespace std;
 
 int total_instruction = 0;
 mutex instruction_mtx;
 mutex interconnect_mtx;
+
+enum SchedulerType { FIFO, QOS };
+SchedulerType scheduler = QOS; // Cambiar a FIFO si se desea ignorar prioridad
+
 
 const char* hex_char_to_bin(char c)
 {
@@ -148,13 +153,15 @@ class Interconect{
             lock_guard<mutex> lock(interconnect_mtx);
 
             // Guarda la instruccion en los mensajes
-            string temp1 = "READ_MEM " + DEST + ", " + DIR + ", " + OBJ + ", " + PRIO + "\n";
+            string temp1 = "READ_MEM " + DEST + ", " + DIR + " " + OBJ + " " + PRIO + "\n";
             KeepMessage(temp1);
 
             // Obtiene valores
             DIR.erase(DIR.find(","));
+            
             DIR.erase(0,2);
             OBJ.erase(0,2);
+
             int temp0 = stoi(DIR);
             int L = temp0/128;
             int C = temp0%128;
@@ -253,7 +260,7 @@ class PE{
         // Ejecucion de instrucciones
         void Ejecutar() {
             lock_guard<mutex> lock(instruction_mtx);
-            ifstream myfile("PE"+to_string(name)+".txt"); // <-- Única declaración
+            ifstream myfile((scheduler == QOS) ? "PE_temp_" + to_string(name) + ".txt" : "PE" + to_string(name) + ".txt");
             string mystring;
             string aux0;
             string aux1;
@@ -447,6 +454,13 @@ class PE{
             }
             messages = "";
         }
+
+        int getPriorityValue() const {
+            string hex = prioridad;
+            hex.erase(0,2); // remove 0x
+            return hex_str_to_dec_int(hex);
+        }
+        
 };
 
 // Creación de 8 PEs
@@ -467,49 +481,133 @@ void pe_thread(PE& pe) {
     }
 }
 
-int main() {
-    vector<thread> pe_threads;
-    
-    // Esperar a que terminen todos los hilos
-    cout << "Listo" << endl;
-    try {
-        int i = 0;
-        while (i < 10) {
-            if (kbhit()){
-                // Lanzar todos los PEs en hilos
-                pe_threads.emplace_back(pe_thread, ref(PE0));
-                pe_threads.emplace_back(pe_thread, ref(PE1));
-                pe_threads.emplace_back(pe_thread, ref(PE2));
-                pe_threads.emplace_back(pe_thread, ref(PE3));
-                pe_threads.emplace_back(pe_thread, ref(PE4));
-                pe_threads.emplace_back(pe_thread, ref(PE5));
-                pe_threads.emplace_back(pe_thread, ref(PE6));
-                pe_threads.emplace_back(pe_thread, ref(PE7));
+struct QoSEntry {
+    int priority_value;
+    PE* pe_ptr;
 
-                //for (auto& t : pe_threads) {
-                //    t.join();
-                //}
+    QoSEntry(int p, PE* pe) : priority_value(p), pe_ptr(pe) {}
 
-                cout << "Ejecutando" << endl; 
-                cout << getch() << endl;
-                i++;
-                Sleep(1000);
-            }
-        }
-    } catch(const std::system_error& e)
-    {
-        std::cout << "Caught system_error with code "
-                    "[" << e.code() << "] meaning "
-                    "[" << e.what() << "]\n";
+    // Menor valor de prioridad implica mayor prioridad en ejecución
+    bool operator<(const QoSEntry& other) const {
+        return priority_value > other.priority_value; // Inverso para min-heap
     }
+};
 
-    // Generar resultados finales
-    INTERCONECT.Result();
+struct Instruction {
+    int qos_value;
+    int pe_id;
+    string line;
+
+    Instruction(int qos, int id, const string& ln) : qos_value(qos), pe_id(id), line(ln) {}
+
+    // Menor QoS → mayor prioridad
+    bool operator<(const Instruction& other) const {
+        return qos_value > other.qos_value; // min-heap
+    }
+};
+
+vector<Instruction> cargarInstruccionesPorQoS() {
+    vector<Instruction> instrucciones;
+    for (int pe_id = 0; pe_id < 8; ++pe_id) {
+        ifstream file("PE" + to_string(pe_id) + ".txt");
+        string linea;
+        while (getline(file, linea)) {
+            istringstream iss(linea);
+            string opcode, arg1, arg2, arg3, qos;
+            iss >> opcode;
+            if (opcode == "WRITE_CACHE") {
+                continue; // esta instrucción se ejecuta por PE, no Interconnect
+            } else if (opcode == "WRITE_MEM") {
+                iss >> arg1 >> arg2 >> arg3 >> qos;
+            } else if (opcode == "READ_MEM") {
+                iss >> arg1 >> arg2 >> arg3 >> qos;
+            } else {
+                continue; // ignorar otras
+            }
+            int qos_val = hex_str_to_dec_int(qos.substr(2));
+            instrucciones.emplace_back(qos_val, pe_id, linea);
+        }
+    }
+    return instrucciones;
+}
+
+
+
+
+int main() {
+// Preguntar al usuario qué tipo de calendarización desea
+cout << "Seleccione el tipo de calendarización:" << endl;
+cout << "1. FIFO (se ignora el QoS)" << endl;
+cout << "2. QoS (según prioridad asignada a cada PE)" << endl;
+cout << "Opción: ";
+
+int opcion;
+cin >> opcion;
+if (opcion == 2) {
+    scheduler = QOS;
+    cout << "Se utilizará calendarización basada en QoS." << endl;
+} else {
+    scheduler = FIFO;
+    cout << "Se utilizará calendarización FIFO." << endl;
+}
+
+vector<thread> pe_threads;
+vector<PE*> pes = { &PE0, &PE1, &PE2, &PE3, &PE4, &PE5, &PE6, &PE7 };
+
+
+cout << "Listo" << endl;
+try {
+    int i = 0;
+    while (i < 10) {
+        if (kbhit()) {
+            cout << "Ejecutando ciclo " << i << "..." << endl;
+
+            if (scheduler == FIFO) {
+                for (PE* pe : pes) {
+                    pe_threads.emplace_back(pe_thread, ref(*pe));
+                }
+            } else { // QOS por instrucción
+                vector<Instruction> instrucciones = cargarInstruccionesPorQoS();
+                priority_queue<Instruction> queue(instrucciones.begin(), instrucciones.end());
+            
+                while (!queue.empty()) {
+                    Instruction inst = queue.top(); queue.pop();
+                    PE* pe = pes[inst.pe_id];
+            
+                    // Guardar instrucción actual en un archivo temporal por PE
+                    ofstream temp("PE_temp_" + to_string(inst.pe_id) + ".txt");
+                    temp << inst.line << endl;
+                    temp.close();
+            
+                    // Ejecutar solo esa instrucción
+                    pe->Ejecutar(); // Asegúrate que lea desde PE_temp en este modo
+                    total_instruction++;
+                }
+            }
+            
+            
+
+            for (auto& t : pe_threads) t.join();
+            pe_threads.clear();
+
+            cout << "Presione cualquier tecla para continuar al siguiente ciclo..." << endl;
+            getch();
+            i++;
+        }
+    }
     
-    // Escribir estadísticas adicionales
-    cout << "Simulacion completada. Total de instrucciones ejecutadas: " << total_instruction << endl;
-    cout << "Resultados guardados en MemoryInterconnect.txt y MessagesInterconnect.txt" << endl;
-    cout << "Version: " << __cplusplus << endl;
+} catch (const std::system_error& e) {
+    cerr << "Error del sistema: [" << e.code() << "] - " << e.what() << endl;
+    Sleep(500);
+}
 
-    return 0;
+// Generar resultados finales
+INTERCONECT.Result();
+    
+// Escribir estadísticas adicionales
+cout << "Simulacion completada. Total de instrucciones ejecutadas: " << total_instruction << endl;
+cout << "Resultados guardados en MemoryInterconnect.txt y MessagesInterconnect.txt" << endl;
+cout << "Version: " << __cplusplus << endl;
+cout << "\nPresione cualquier tecla para salir..." << endl;
+getch();
 }
