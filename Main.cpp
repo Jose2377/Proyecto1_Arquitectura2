@@ -231,6 +231,31 @@ class Interconect{
                 }
             }
         }
+        // Método en Interconect para manejar BROADCAST_INVALIDATE
+        void BroadcastInvalidate(int src_pe, int cache_line, string qos) {
+            lock_guard<mutex> lock(interconnect_mtx);
+            
+            // Guarda el mensaje del BROADCAST_INVALIDATE
+            string broadcast_message = "BROADCAST_INVALIDATE (PE" + to_string(src_pe) + "), CACHE_LINE: " + to_string(cache_line) + ", QoS: " + qos + "\n";
+            KeepMessage(broadcast_message);  // Guardamos el mensaje original del BroadcastInvalidate
+            cout << broadcast_message << endl;
+        
+            // Recorre todos los PEs y envía la instrucción INV_BACK, excepto el PE que originó el BROADCAST_INVALIDATE
+            for (int pe_id = 0; pe_id < 8; ++pe_id) {
+                if (pe_id != src_pe) {
+                    string message = "INV_BACK (PE" + to_string(pe_id) + "), QoS: " + qos + "\n";
+                    KeepMessage(message);  // Guardamos la respuesta INV_BACK
+                    cout << message << endl;
+                }
+            }
+        
+            // Después de que todos los PEs envían un INV_BACK, el PE que originó el broadcast envía INV_COMPLETE
+            string inv_complete_message = "INV_COMPLETE (PE" + to_string(src_pe) + "), QoS: 0x02" + "\n";
+            KeepMessage(inv_complete_message);  // Guardamos la respuesta INV_COMPLETE
+            cout << inv_complete_message << endl;
+        }
+        
+
 };
 
 Interconect INTERCONECT; // NOMBRE TEMPORAL
@@ -370,6 +395,13 @@ class PE{
 
                         // Escribe en cache
                         WriteCache(aux2, aux0);
+                    } else if (mystring == "BROADCAST_INVALIDATE") {
+                        // Obtiene los parámetros necesarios
+                        string cache_line = "0x1";  // ejemplo de línea de cache
+                        string qos = "0x01";  // QoS para INV_BACK
+        
+                        // Realiza la invalidación y espera las respuestas
+                        INTERCONECT.BroadcastInvalidate(name, stoi(cache_line, nullptr, 16), qos);
                     }
                 }         
             }
