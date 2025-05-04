@@ -113,7 +113,7 @@ class Interconect{
             lock_guard<mutex> lock(interconnect_mtx);
 
             // Guarda la instruccion en los mensajes
-            string temp1 = "WRITE_MEM " + DEST + ", " + DIR + " " + OB2 + ", " + OB3 + ", " + PRIO + "\n";
+            string temp1 = "WRITE_MEM " + DEST + ", " + DIR + " " + OB2 + " " + OB3 + " " + PRIO + "\n";
             KeepMessage(temp1);
 
             // Obtiene valores
