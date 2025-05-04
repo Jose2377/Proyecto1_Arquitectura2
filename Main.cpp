@@ -109,19 +109,17 @@ class Interconect{
         }
         // Escribe en memoria del interconect
         // Escribe de DEST(PE), en la direccion (DIR) escribe el valor (OBJ), con valor de prioridad (PRIO)
-        string Write(string DEST, string DIR, string OBJ, string PRIO){
+        string Write(string DEST, string DIR, string OBJ, string OB2, string OB3, string PRIO){
             lock_guard<mutex> lock(interconnect_mtx);
 
             // Guarda la instruccion en los mensajes
-            string temp1 = "WRITE_MEM " + DEST + ", " + DIR + " 0x" + bin_str_to_hex_str(OBJ) + ", " + PRIO + "\n";
+            string temp1 = "WRITE_MEM " + DEST + ", " + DIR + " " + OB2 + ", " + OB3 + ", " + PRIO + "\n";
             KeepMessage(temp1);
 
             // Obtiene valores
             int temp0 = DIR.length();
             DIR.erase(temp0-1,1);
             DIR.erase(0,2);
-
-
 
             temp0 = hex_str_to_dec_int(DIR);
             int L = temp0/128;
@@ -292,6 +290,8 @@ class PE{
             string aux0;
             string aux1;
             string aux2;
+            string aux3;
+            string aux4;
             string qos;
 
             if (scheduler == FIFO) {
@@ -344,11 +344,13 @@ class PE{
                         KeepMessage(aux0 + " " + aux1 + " " + aux2 + "\n");
 
                         // Prepara datos, al leer cache y obtener el SRC
+                        aux4 = aux2;
+                        aux3 = aux1;
                         aux2 = ReadCache(aux2, aux1);
                         aux1 = "0x" + to_string(name);
 
                         // Envia el mensaje de escritura al Interconnect
-                        aux0 = INTERCONECT.Write(aux1, aux0, aux2, prioridad);
+                        aux0 = INTERCONECT.Write(aux1, aux0, aux2, aux3, aux4, prioridad);
 
                         // Guarda la instrucción en los mensajes
                         KeepMessage(aux0);
