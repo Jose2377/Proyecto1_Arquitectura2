@@ -12,6 +12,8 @@
 #include <mutex>
 #include <windows.h>
 #include <queue>
+#include <map>
+#include <algorithm>
 
 using namespace std;
 
@@ -265,9 +267,12 @@ class PE{
             string aux0;
             string aux1;
             string aux2;
+            string qos;
 
-            for (int i = 0; i < instruction; ++i){
-                getline(myfile,mystring);
+            if (scheduler == FIFO) {
+                for (int i = 0; i < instruction; ++i) {
+                    getline(myfile, mystring);
+                }
             }
 
             // Empieza a ejecutar las instrucciones
@@ -275,15 +280,18 @@ class PE{
                 if ( myfile.good() ) {
                     myfile >> mystring;
                     KeepMessage(mystring + " ");
-                    // Funcion de WRITE_CACHE (ADDRESS, VALUE)
+                    // Imprimir la instrucción que va a ejecutar con su tipo
                     if (mystring == "WRITE_CACHE"){
-                        // Obtiene valores necesarios de la instruccion
+                        // Obtiene valores necesarios de la instrucción
                         myfile >> mystring;
                         aux0 = mystring;
                         myfile >> mystring;
                         aux1 = mystring;
 
-                        // Guarda la instruccion en los mensajes
+                        // Imprime la instrucción con el tipo
+                        cout << "PE (" << name << "), WRITE_CACHE (" << aux0 << "), (" << aux1 << ")\n";
+
+                        // Guarda la instrucción en los mensajes
                         KeepMessage(aux0 + " " + aux1 + "\n");
 
                         // Cambia de hexadecimal string a binario string
@@ -293,17 +301,21 @@ class PE{
                         // Escribe en cache
                         WriteCache(aux0, aux1);
 
-                    // Funcion de WRITE_MEM (ADDRESS in memory, NUMBER_OF_BYTES, ADDRESS in cache)
                     } else if (mystring == "WRITE_MEM"){
-                        // Obtiene valores necesarios de la instruccion
+                        // Obtiene valores necesarios de la instrucción
                         myfile >> mystring;
                         aux0 = mystring;
                         myfile >> mystring;
                         aux1 = mystring;
                         myfile >> mystring;
                         aux2 = mystring;
+                        myfile >> mystring;
+                        qos = mystring;
 
-                        // Guarda la instruccion en los mensajes
+                        // Imprime la instrucción con el tipo
+                        cout << "PE (" << name << "), WRITE_MEM (" << aux0 << "), (" << aux1 << "), (" << aux2 << "), (" << qos << ")\n";
+
+                        // Guarda la instrucción en los mensajes
                         KeepMessage(aux0 + " " + aux1 + " " + aux2 + "\n");
 
                         // Prepara datos, al leer cache y obtener el SRC
@@ -313,24 +325,29 @@ class PE{
                         // Envia el mensaje de escritura al Interconnect
                         aux0 = INTERCONECT.Write(aux1, aux0, aux2, prioridad);
 
-                        // Guarda la instruccion en los mensajes
+                        // Guarda la instrucción en los mensajes
                         KeepMessage(aux0);
 
-                    // Funcion de READ_MEM (ADDRESS in memory and cache)
                     } else if (mystring == "READ_MEM"){
-                        // Obtiene valores necesarios de la instruccion
+                        // Obtiene valores necesarios de la instrucción
                         myfile >> mystring;
                         aux2 = mystring;
                         myfile >> mystring;
+                        aux1 = mystring;
+                        myfile >> mystring;
+                        qos = mystring;
 
-                        // Guarda la instruccion en los mensajes
+                        // Imprime la instrucción con el tipo
+                        cout << "PE (" << name << "), READ_MEM (" << aux2 << "), (" << aux1 << "), (" << qos << ")\n";
+
+                        // Guarda la instrucción en los mensajes
                         KeepMessage(aux2 + " " + mystring + "\n");
 
                         // Obtiene el SRC y envia el mensaje de lectura al Interconnect
                         aux1 = "0x" + to_string(name);
                         aux0 = INTERCONECT.Read(aux1, aux2, mystring, prioridad);
 
-                        // Guarda la instruccion en los mensajes
+                        // Guarda la instrucción en los mensajes
                         KeepMessage(aux0);
 
                         // Del mensaje, obtiene el valor a escribir
@@ -351,7 +368,7 @@ class PE{
                             }
                         }
 
-                        // Escribe en cahe
+                        // Escribe en cache
                         WriteCache(aux2, aux0);
                     }
                 }         
@@ -381,6 +398,9 @@ class PE{
 
             instruction++;
         };
+
+
+
 
         // Guarda los mensajes
         void KeepMessage(string sended){
@@ -481,133 +501,142 @@ void pe_thread(PE& pe) {
     }
 }
 
-struct QoSEntry {
-    int priority_value;
-    PE* pe_ptr;
 
-    QoSEntry(int p, PE* pe) : priority_value(p), pe_ptr(pe) {}
-
-    // Menor valor de prioridad implica mayor prioridad en ejecución
-    bool operator<(const QoSEntry& other) const {
-        return priority_value > other.priority_value; // Inverso para min-heap
-    }
-};
-
+// Modificar la estructura de Instruction para incluir el número de línea
 struct Instruction {
     int qos_value;
     int pe_id;
     string line;
+    int line_num;
 
-    Instruction(int qos, int id, const string& ln) : qos_value(qos), pe_id(id), line(ln) {}
+    Instruction(int qos, int id, const string& ln, int num) 
+        : qos_value(qos), pe_id(id), line(ln), line_num(num) {}
 
-    // Menor QoS → mayor prioridad
+    // Ordenamiento correcto: menor QoS = mayor prioridad
     bool operator<(const Instruction& other) const {
-        return qos_value > other.qos_value; // min-heap
+        // Verificar si es WRITE_CACHE (siempre máxima prioridad)
+        bool this_is_write_cache = (line.find("WRITE_CACHE") != string::npos);
+        bool other_is_write_cache = (other.line.find("WRITE_CACHE") != string::npos);
+        
+        if (this_is_write_cache && !other_is_write_cache)
+            return true;  // this tiene mayor prioridad (debe aparecer antes)
+        if (!this_is_write_cache && other_is_write_cache)
+            return false; // other tiene mayor prioridad
+            
+        // Si ambos son WRITE_CACHE o ninguno lo es, ordenamos por QoS
+        if (qos_value != other.qos_value) {
+            return qos_value < other.qos_value; // Menor valor QoS = mayor prioridad
+        }
+        
+        // En caso de mismo QoS, usar FIFO (orden por número de línea)
+        return line_num < other.line_num;
     }
 };
 
-vector<Instruction> cargarInstruccionesPorQoS() {
-    vector<Instruction> instrucciones;
-    for (int pe_id = 0; pe_id < 8; ++pe_id) {
-        ifstream file("PE" + to_string(pe_id) + ".txt");
-        string linea;
-        while (getline(file, linea)) {
-            istringstream iss(linea);
-            string opcode, arg1, arg2, arg3, qos;
-            iss >> opcode;
-            if (opcode == "WRITE_CACHE") {
-                continue; // esta instrucción se ejecuta por PE, no Interconnect
-            } else if (opcode == "WRITE_MEM") {
-                iss >> arg1 >> arg2 >> arg3 >> qos;
-            } else if (opcode == "READ_MEM") {
-                iss >> arg1 >> arg2 >> arg3 >> qos;
-            } else {
-                continue; // ignorar otras
-            }
-            int qos_val = hex_str_to_dec_int(qos.substr(2));
-            instrucciones.emplace_back(qos_val, pe_id, linea);
-        }
-    }
-    return instrucciones;
-}
-
-
-
 
 int main() {
-// Preguntar al usuario qué tipo de calendarización desea
-cout << "Seleccione el tipo de calendarización:" << endl;
-cout << "1. FIFO (se ignora el QoS)" << endl;
-cout << "2. QoS (según prioridad asignada a cada PE)" << endl;
-cout << "Opción: ";
-
-int opcion;
-cin >> opcion;
-if (opcion == 2) {
-    scheduler = QOS;
-    cout << "Se utilizará calendarización basada en QoS." << endl;
-} else {
-    scheduler = FIFO;
-    cout << "Se utilizará calendarización FIFO." << endl;
-}
-
-vector<thread> pe_threads;
-vector<PE*> pes = { &PE0, &PE1, &PE2, &PE3, &PE4, &PE5, &PE6, &PE7 };
-
-
-cout << "Listo" << endl;
-try {
-    int i = 0;
-    while (i < 10) {
-        if (kbhit()) {
-            cout << "Ejecutando ciclo " << i << "..." << endl;
-
-            if (scheduler == FIFO) {
-                for (PE* pe : pes) {
-                    pe_threads.emplace_back(pe_thread, ref(*pe));
-                }
-            } else { // QOS por instrucción
-                vector<Instruction> instrucciones = cargarInstruccionesPorQoS();
-                priority_queue<Instruction> queue(instrucciones.begin(), instrucciones.end());
-            
-                while (!queue.empty()) {
-                    Instruction inst = queue.top(); queue.pop();
-                    PE* pe = pes[inst.pe_id];
-            
-                    // Guardar instrucción actual en un archivo temporal por PE
-                    ofstream temp("PE_temp_" + to_string(inst.pe_id) + ".txt");
-                    temp << inst.line << endl;
-                    temp.close();
-            
-                    // Ejecutar solo esa instrucción
-                    pe->Ejecutar(); // Asegúrate que lea desde PE_temp en este modo
-                    total_instruction++;
-                }
-            }
-            
-            
-
-            for (auto& t : pe_threads) t.join();
-            pe_threads.clear();
-
-            cout << "Presione cualquier tecla para continuar al siguiente ciclo..." << endl;
-            getch();
-            i++;
-        }
+    // Selección de algoritmo de calendarización
+    cout << "Seleccione el tipo de calendarización:" << endl;
+    cout << "1. FIFO (se ignora el QoS)" << endl;
+    cout << "2. QoS (según prioridad asignada a cada PE)" << endl;
+    cout << "Opción: ";
+    int opcion;
+    cin >> opcion;
+    if (opcion == 2) {
+        scheduler = QOS;
+        cout << "Se utilizará calendarización basada en QoS." << endl;
+    } else {
+        scheduler = FIFO;
+        cout << "Se utilizará calendarización FIFO." << endl;
     }
-    
-} catch (const std::system_error& e) {
-    cerr << "Error del sistema: [" << e.code() << "] - " << e.what() << endl;
-    Sleep(500);
-}
 
-// Generar resultados finales
-INTERCONECT.Result();
-    
-// Escribir estadísticas adicionales
-cout << "Simulacion completada. Total de instrucciones ejecutadas: " << total_instruction << endl;
-cout << "Resultados guardados en MemoryInterconnect.txt y MessagesInterconnect.txt" << endl;
-cout << "Version: " << __cplusplus << endl;
-cout << "\nPresione cualquier tecla para salir..." << endl;
-getch();
+    // Vector de punteros a PEs y contador de líneas leídas por PE
+    vector<PE*> pes = { &PE0, &PE1, &PE2, &PE3, &PE4, &PE5, &PE6, &PE7 };
+    int instructionCount[8] = { 0 };
+
+    cout << "Listo" << endl;
+    int ciclos = 0, maxCiclos = 10;
+    while (ciclos < maxCiclos) {
+        if (!kbhit()) continue;               // Espera tecla para avanzar
+        cout << "\n--- Ciclo " << ciclos << " ---\n";
+
+        if (scheduler == FIFO) {
+            // FIFO puro: un hilo por PE en orden 0…7
+            vector<thread> threads;
+            for (PE* pe : pes) {
+                threads.emplace_back(pe_thread, ref(*pe));
+            }
+            for (auto &t : threads) t.join();
+            total_instruction += pes.size();
+        }
+        else {
+            // QoS: recolectar UNA instrucción pendiente de cada PE
+            vector<Instruction> batch;
+            for (int id = 0; id < 8; ++id) {
+                ifstream f("PE" + to_string(id) + ".txt");
+                string linea;
+                // Saltar las instrucciones ya consumidas
+                for (int s = 0; s < instructionCount[id] && getline(f, linea); ++s);
+                // Leer siguiente instrucción
+                if (!getline(f, linea)) {
+                    cout << "PE" << id << " sin más instrucciones (consumidas: "
+                         << instructionCount[id] << ")\n";
+                    continue;
+                }
+                
+
+                // Extraer opcode y QoS
+                istringstream iss(linea);
+                string opcode; iss >> opcode;
+                int qosVal = 255;
+                if (opcode == "WRITE_CACHE") {
+                    qosVal = 0;
+                } else if (opcode == "WRITE_MEM") {
+                    string a1,a2,a3,qos; iss >> a1 >> a2 >> a3 >> qos;
+                    if (qos.rfind("0x",0) == 0)
+                        qosVal = hex_str_to_dec_int(qos.substr(2));
+                } else if (opcode == "READ_MEM") {
+                    string a1,a2,qos; iss >> a1 >> a2 >> qos;
+                    if (qos.rfind("0x",0) == 0)
+                        qosVal = hex_str_to_dec_int(qos.substr(2));
+                }
+
+                batch.emplace_back(qosVal, id, linea, instructionCount[id]);
+            }
+
+            // Ordenar por WRITE_CACHE primero, luego por QoS y FIFO
+            sort(batch.begin(), batch.end());
+
+            // Ejecutar las instrucciones en orden QoS
+            vector<thread> threads;
+            for (auto &inst : batch) {
+                // Volcar esa línea en un archivo temporal
+                ofstream tmp("PE_temp_" + to_string(inst.pe_id) + ".txt", ios::trunc);
+                tmp << inst.line << "\n";
+                tmp.close();
+
+                // Lanzar hilo para ejecutar UNA instrucción de ese PE
+                threads.emplace_back(pe_thread, ref(*pes[inst.pe_id]));
+
+                // Actualizar contadores
+                instructionCount[inst.pe_id]++;  
+                total_instruction++;
+            }
+            for (auto &t : threads) t.join();
+        }
+
+        cout << "Presione cualquier tecla para continuar al siguiente ciclo..." << endl;
+        getch();
+        ciclos++;
+    }
+
+    // Resultados finales
+    INTERCONECT.Result();
+    cout << "\nSimulación completada. Total de instrucciones ejecutadas: "
+         << total_instruction << endl;
+    cout << "Resultados guardados en MemoryInterconnect.txt y MessagesInterconnect.txt\n";
+    cout << "Versión de C++: " << __cplusplus << endl;
+    cout << "Presione cualquier tecla para salir..." << endl;
+    getch();
+    return 0;
 }
