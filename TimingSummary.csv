@@ -1,0 +1,5 @@
+Instruction Type,Min Time,Max Time,Avg Time,Total Instructions
+BROADCAST_INVALIDATE,6,10,7.75,8
+READ_MEM,1,12,6.75,24
+WRITE_CACHE,0,4,1.92,24
+WRITE_MEM,10,22,15.38,24

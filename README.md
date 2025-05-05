@@ -19,3 +19,12 @@ READ_RESP (PE_DEST) (DATA) (QoS)
 - Datos de la Memoria principal correspondiente es a READ_MEM // La cantidad de bytes debe ser consistente con el mensaje de READ_MEM
 WRITE_RESP (PE_DEST) (STATUS) (QoS)
 - Respuesta a WRITE_MEM // STATUS es un campo de 1- byte indicando si la escritura fue exitosa: 0x1: OK 0x0: NOT_OK
+
+
+
+
+Ancho de banda: Interconnect
+
+Tráfico: cada PE
+
+Tiempo de ejecución 

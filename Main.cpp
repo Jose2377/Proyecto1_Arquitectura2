@@ -1,5 +1,3 @@
-//#define _WIN32_WINNT 0x0500 // Es necesaria esta definicion para esconder ventana de consola
-
 #include <iostream>
 #include <conio.h>
 #include <sstream>
@@ -14,16 +12,138 @@
 #include <queue>
 #include <map>
 #include <algorithm>
+#include <iomanip>
+#include <random>
 
 using namespace std;
 
 int total_instruction = 0;
+int ciclos = 0, maxCiclos = 10;
 mutex instruction_mtx;
 mutex interconnect_mtx;
+mutex timing_mtx;
+
 
 enum SchedulerType { FIFO, QOS };
 SchedulerType scheduler = QOS; // Cambiar a FIFO si se desea ignorar prioridad
 
+// Sistema de tiempos simulados
+struct InstructionTiming {
+    string instruction_type;
+    string pe_id;
+    int data_size;
+    float execution_time;
+    int cycle;
+};
+
+vector<InstructionTiming> timing_log;
+
+// Constantes para tiempos simulados (en unidades arbitrarias)
+const double BASE_WRITE_CACHE_TIME = 1.0;   // Tiempo base para escribir en cache
+const double BASE_WRITE_MEM_TIME = 5.0;     // Tiempo base para escribir en memoria compartida
+const double BASE_READ_MEM_TIME = 3.0;      // Tiempo base para leer de memoria compartida
+const double BASE_BROADCAST_INV_TIME = 8.0; // Tiempo base para broadcast invalidate
+const double DATA_SIZE_FACTOR = 1.0;        // Factor multiplicativo por tamaño de datos (bytes)
+const double VARIANCE_FACTOR = 2.5638;      // Factor de varianza para simular diferencias en tiempos
+
+// Generador de numeros aleatorios para agregar varianza
+std::random_device rd;
+std::mt19937 gen(rd());
+std::uniform_real_distribution<double> variance_dist(-VARIANCE_FACTOR, VARIANCE_FACTOR);
+
+// Funcion para calcular el tiempo simulado segun el tipo de instruccion y tamaño de datos
+double calculateSimulatedTime(const string& instruction_type, int data_size) {
+    // Calculamos el tiempo base segun el tipo de instruccion
+    double base_time = 0.0;
+    
+    if (instruction_type == "WRITE_CACHE") {
+        base_time = BASE_WRITE_CACHE_TIME + (data_size * DATA_SIZE_FACTOR) / 8.0;
+    } else if (instruction_type == "WRITE_MEM") {
+        base_time = BASE_WRITE_MEM_TIME + (data_size * DATA_SIZE_FACTOR) / 4.0;
+    } else if (instruction_type == "READ_MEM") {
+        base_time = BASE_READ_MEM_TIME + (data_size * DATA_SIZE_FACTOR) / 6.0;
+    } else if (instruction_type == "BROADCAST_INVALIDATE") {
+        base_time = BASE_BROADCAST_INV_TIME;
+    } else {
+        // Instruccion desconocida
+        base_time = 1.0;
+    }
+    
+    // Agregamos varianza aleatoria con precision de 4 decimales
+    double random_variance = variance_dist(gen);
+    // Truncar a 4 decimales (multiplicar por 10000, truncar, dividir por 10000)
+    random_variance = trunc(random_variance * 10000.0) / 10000.0;
+    
+    // Aseguramos que el tiempo nunca sea negativo
+    double final_time = base_time + random_variance;
+    if (final_time < 0.5) final_time = 0.5;  // Minimo tiempo de 0.5
+    
+    // Truncar el resultado a 4 decimales
+    return trunc(final_time * 10000.0) / 10000.0;
+}
+
+// Funcion para registrar tiempo de una instruccion
+void logInstructionTime(const string& instruction_type, const string& pe_id, int data_size, int cycle) {
+    lock_guard<mutex> lock(timing_mtx);
+    float exec_time = static_cast<float>(calculateSimulatedTime(instruction_type, data_size)); // Explicit cast to float
+    
+    InstructionTiming timing = {
+        instruction_type,
+        pe_id,
+        data_size,
+        exec_time, // Now explicitly cast to float
+        cycle
+    };
+    
+    timing_log.push_back(timing);
+}
+
+// Funcion para guardar los tiempos en un archivo CSV
+void saveTimingResults() {
+    ofstream timing_file("InstructionTiming.csv");
+    timing_file << "Instruction Type,PE ID,Data Size,Execution Time,Cycle\n";
+    
+    for (const auto& timing : timing_log) {
+        timing_file << timing.instruction_type << ","
+                    << timing.pe_id << ","
+                    << timing.data_size << ","
+                    << timing.execution_time << ","
+                    << timing.cycle << "\n";
+    }
+    
+    timing_file.close();
+    
+    // Tambien crear un archivo de resumen
+    ofstream summary_file("TimingSummary.csv");
+    summary_file << "Instruction Type,Min Time,Max Time,Avg Time,Total Instructions\n";
+    
+    map<string, vector<int>> times_by_type;
+    for (const auto& timing : timing_log) {
+        times_by_type[timing.instruction_type].push_back(timing.execution_time);
+    }
+    
+    for (const auto& pair : times_by_type) {
+        const string& type = pair.first;
+        const vector<int>& times = pair.second;
+        
+        int min_time = *min_element(times.begin(), times.end());
+        int max_time = *max_element(times.begin(), times.end());
+        
+        double avg_time = 0;
+        for (int time : times) {
+            avg_time += time;
+        }
+        avg_time /= times.size();
+        
+        summary_file << type << ","
+                    << min_time << ","
+                    << max_time << ","
+                    << fixed << setprecision(2) << avg_time << ","
+                    << times.size() << "\n";
+    }
+    
+    summary_file.close();
+}
 
 const char* hex_char_to_bin(char c)
 {
@@ -78,10 +198,10 @@ int hex_str_to_dec_int(string hexVal)
     return dec_val; 
 } 
 
-// Función para convertir un número binario a hexadecimal
+// Funcion para convertir un numero binario a hexadecimal
 string bin_str_to_hex_str(string binario) {
     // Convertir el binario a decimal
-    bitset<32> bits(binario); // asumimos que el tamaño máximo es 32 bits
+    bitset<32> bits(binario); // asumimos que el tamaño maximo es 32 bits
     unsigned long decimal = bits.to_ulong();
 
     // Convertir el decimal a hexadecimal
@@ -125,6 +245,11 @@ class Interconect{
             int L = temp0/128;
             int C = temp0%128;
 
+            // Registra el tiempo simulado
+            int data_size = OBJ.length(); // Tamaño en bits
+            logInstructionTime("WRITE_MEM", DEST, data_size, ciclos);
+
+
             // Empieza a escribir en memoria cache
             temp1 = OBJ;
             for (size_t i = 0; i < temp1.length(); ++i) {
@@ -165,6 +290,12 @@ class Interconect{
             int temp0 = stoi(DIR);
             int L = temp0/128;
             int C = temp0%128;
+
+            // Calcula el tamaño de datos en bits
+            int data_size = hex_str_to_dec_int(OBJ) * 8;
+            
+            // Registra el tiempo simulado
+            logInstructionTime("READ_MEM", DEST, data_size, ciclos);
 
             // Empieza a leer en memoria compartida
             temp0 = hex_str_to_dec_int(OBJ);
@@ -219,7 +350,11 @@ class Interconect{
             ofstream MyFile2("MessagesInterconnect.txt");
             MyFile2 << messages;
             MyFile2.close();
+
+            // Guardar resultados de tiempo
+            saveTimingResults();
         }
+        
         //Reiniciar memoria
         void Reset(){
             messages = "";
@@ -229,31 +364,33 @@ class Interconect{
                 }
             }
         }
-        // Método en Interconect para manejar BROADCAST_INVALIDATE
+        // Metodo en Interconect para manejar BROADCAST_INVALIDATE
         void BroadcastInvalidate(int src_pe, int cache_line, string qos) {
             lock_guard<mutex> lock(interconnect_mtx);
+
+             // Registrar tiempo para BROADCAST_INVALIDATE
+             logInstructionTime("BROADCAST_INVALIDATE", "PE" + to_string(src_pe), 0, ciclos);
             
             // Guarda el mensaje del BROADCAST_INVALIDATE
             string broadcast_message = "BROADCAST_INVALIDATE (PE" + to_string(src_pe) + "), CACHE_LINE: " + to_string(cache_line) + ", QoS: " + qos + "\n";
             KeepMessage(broadcast_message);  // Guardamos el mensaje original del BroadcastInvalidate
             cout << broadcast_message << endl;
         
-            // Recorre todos los PEs y envía la instrucción INV_BACK, excepto el PE que originó el BROADCAST_INVALIDATE
+            // Recorre todos los PEs y envia la instruccion INV_BACK, excepto el PE que origino el BROADCAST_INVALIDATE
             for (int pe_id = 0; pe_id < 8; ++pe_id) {
                 if (pe_id != src_pe) {
-                    string message = "INV_BACK (PE" + to_string(pe_id) + "), QoS: " + qos + "\n";
+                    string message = "INV_ACK (PE" + to_string(pe_id) + "), QoS: " + qos;
                     KeepMessage(message);  // Guardamos la respuesta INV_BACK
                     cout << message << endl;
                 }
             }
         
-            // Después de que todos los PEs envían un INV_BACK, el PE que originó el broadcast envía INV_COMPLETE
+            // Despues de que todos los PEs envian un INV_BACK, el PE que origino el broadcast envia INV_COMPLETE
             string inv_complete_message = "INV_COMPLETE (PE" + to_string(src_pe) + "), QoS: 0x02" + "\n";
             KeepMessage(inv_complete_message);  // Guardamos la respuesta INV_COMPLETE
             cout << inv_complete_message << endl;
         }
         
-
 };
 
 Interconect INTERCONECT; // NOMBRE TEMPORAL
@@ -305,29 +442,32 @@ class PE{
                 if ( myfile.good() ) {
                     myfile >> mystring;
                     KeepMessage(mystring + " ");
-                    // Imprimir la instrucción que va a ejecutar con su tipo
+                    // Imprimir la instruccion que va a ejecutar con su tipo
                     if (mystring == "WRITE_CACHE"){
-                        // Obtiene valores necesarios de la instrucción
+                        // Obtiene valores necesarios de la instruccion
                         myfile >> mystring;
                         aux0 = mystring;
                         myfile >> mystring;
                         aux1 = mystring;
 
-                        // Imprime la instrucción con el tipo
+                        // Imprime la instruccion con el tipo
                         cout << "PE (" << name << "), WRITE_CACHE (" << aux0 << "), (" << aux1 << ")\n";
 
-                        // Guarda la instrucción en los mensajes
+                        // Guarda la instruccion en los mensajes
                         KeepMessage(aux0 + " " + aux1 + "\n");
 
                         // Cambia de hexadecimal string a binario string
                         aux1.erase(0,2);
                         aux1 = hex_str_to_bin_str(aux1);
 
+                        // Registra el tiempo de WRITE_CACHE
+                        logInstructionTime("WRITE_CACHE", "PE" + to_string(name), aux1.length(), ciclos);
+
                         // Escribe en cache
                         WriteCache(aux0, aux1);
 
                     } else if (mystring == "WRITE_MEM"){
-                        // Obtiene valores necesarios de la instrucción
+                        // Obtiene valores necesarios de la instruccion
                         myfile >> mystring;
                         aux0 = mystring;
                         myfile >> mystring;
@@ -337,10 +477,10 @@ class PE{
                         myfile >> mystring;
                         qos = mystring;
 
-                        // Imprime la instrucción con el tipo
+                        // Imprime la instruccion con el tipo
                         cout << "PE (" << name << "), WRITE_MEM (" << aux0 << "), (" << aux1 << "), (" << aux2 << "), (" << qos << ")\n";
 
-                        // Guarda la instrucción en los mensajes
+                        // Guarda la instruccion en los mensajes
                         KeepMessage(aux0 + " " + aux1 + " " + aux2 + "\n");
 
                         // Prepara datos, al leer cache y obtener el SRC
@@ -352,11 +492,11 @@ class PE{
                         // Envia el mensaje de escritura al Interconnect
                         aux0 = INTERCONECT.Write(aux1, aux0, aux2, aux3, aux4, prioridad);
 
-                        // Guarda la instrucción en los mensajes
+                        // Guarda la instruccion en los mensajes
                         KeepMessage(aux0);
 
                     } else if (mystring == "READ_MEM"){
-                        // Obtiene valores necesarios de la instrucción
+                        // Obtiene valores necesarios de la instruccion
                         myfile >> mystring;
                         aux2 = mystring;
                         myfile >> mystring;
@@ -364,17 +504,17 @@ class PE{
                         myfile >> mystring;
                         qos = mystring;
 
-                        // Imprime la instrucción con el tipo
+                        // Imprime la instruccion con el tipo
                         cout << "PE (" << name << "), READ_MEM (" << aux2 << "), (" << aux1 << "), (" << qos << ")\n";
 
-                        // Guarda la instrucción en los mensajes
+                        // Guarda la instruccion en los mensajes
                         KeepMessage(aux2 + " " + mystring + "\n");
 
                         // Obtiene el SRC y envia el mensaje de lectura al Interconnect
                         aux1 = "0x" + to_string(name);
                         aux0 = INTERCONECT.Read(aux1, aux2, mystring, prioridad);
 
-                        // Guarda la instrucción en los mensajes
+                        // Guarda la instruccion en los mensajes
                         KeepMessage(aux0);
 
                         // Del mensaje, obtiene el valor a escribir
@@ -398,12 +538,20 @@ class PE{
                         // Escribe en cache
                         WriteCache(aux2, aux0);
                     } else if (mystring == "BROADCAST_INVALIDATE") {
-                        // Obtiene los parámetros necesarios
-                        string cache_line = "0x1";  // ejemplo de línea de cache
-                        string qos = "0x01";  // QoS para INV_BACK
-        
-                        // Realiza la invalidación y espera las respuestas
+                        // Obtiene los parametros necesarios
+                        myfile >> mystring;
+                        aux2 = mystring;
+                        myfile >> mystring;
+                        string cache_line = mystring;
+                        myfile >> mystring;
+                        qos = mystring;
+
+                                
+                        // Realiza la invalidacion y espera las respuestas
+                        KeepMessage(aux2 + " " + cache_line + ", " + qos + "\n");
                         INTERCONECT.BroadcastInvalidate(name, stoi(cache_line, nullptr, 16), qos);
+                        KeepMessage("INV_COMPLETE, " + to_string(name)+ ", " + "0x02" + "\n");
+
                     }
                 }         
             }
@@ -432,9 +580,6 @@ class PE{
 
             instruction++;
         };
-
-
-
 
         // Guarda los mensajes
         void KeepMessage(string sended){
@@ -517,7 +662,7 @@ class PE{
         
 };
 
-// Creación de 8 PEs
+// Creacion de 8 PEs
 PE PE0(0, "0x0");
 PE PE1(1, "0x1");
 PE PE2(2, "0x2");
@@ -536,7 +681,7 @@ void pe_thread(PE& pe) {
 }
 
 
-// Modificar la estructura de Instruction para incluir el número de línea
+// Modificar la estructura de Instruction para incluir el numero de linea
 struct Instruction {
     int qos_value;
     int pe_id;
@@ -548,7 +693,7 @@ struct Instruction {
 
     // Ordenamiento correcto: menor QoS = mayor prioridad
     bool operator<(const Instruction& other) const {
-        // Verificar si es WRITE_CACHE (siempre máxima prioridad)
+        // Verificar si es WRITE_CACHE (siempre maxima prioridad)
         bool this_is_write_cache = (line.find("WRITE_CACHE") != string::npos);
         bool other_is_write_cache = (other.line.find("WRITE_CACHE") != string::npos);
         
@@ -562,34 +707,33 @@ struct Instruction {
             return qos_value < other.qos_value; // Menor valor QoS = mayor prioridad
         }
         
-        // En caso de mismo QoS, usar FIFO (orden por número de línea)
+        // En caso de mismo QoS, usar FIFO (orden por numero de linea)
         return line_num < other.line_num;
     }
 };
 
 
 int main() {
-    // Selección de algoritmo de calendarización
-    cout << "Seleccione el tipo de calendarización:" << endl;
+    // Seleccion de algoritmo de calendarizacion
+    cout << "Seleccione el tipo de calendarizacion:" << endl;
     cout << "1. FIFO (se ignora el QoS)" << endl;
-    cout << "2. QoS (según prioridad asignada a cada PE)" << endl;
-    cout << "Opción: ";
+    cout << "2. QoS (segun prioridad asignada a cada PE)" << endl;
+    cout << "Opcion: ";
     int opcion;
     cin >> opcion;
     if (opcion == 2) {
         scheduler = QOS;
-        cout << "Se utilizará calendarización basada en QoS." << endl;
+        cout << "Se utilizara calendarizacion basada en QoS." << endl;
     } else {
         scheduler = FIFO;
-        cout << "Se utilizará calendarización FIFO." << endl;
+        cout << "Se utilizara calendarizacion FIFO." << endl;
     }
 
-    // Vector de punteros a PEs y contador de líneas leídas por PE
+    // Vector de punteros a PEs y contador de lineas leidas por PE
     vector<PE*> pes = { &PE0, &PE1, &PE2, &PE3, &PE4, &PE5, &PE6, &PE7 };
     int instructionCount[8] = { 0 };
 
     cout << "Listo" << endl;
-    int ciclos = 0, maxCiclos = 10;
     while (ciclos < maxCiclos) {
         if (!kbhit()) continue;               // Espera tecla para avanzar
         cout << "\n--- Ciclo " << ciclos << " ---\n";
@@ -604,16 +748,16 @@ int main() {
             total_instruction += pes.size();
         }
         else {
-            // QoS: recolectar UNA instrucción pendiente de cada PE
+            // QoS: recolectar UNA instruccion pendiente de cada PE
             vector<Instruction> batch;
             for (int id = 0; id < 8; ++id) {
                 ifstream f("PE" + to_string(id) + ".txt");
                 string linea;
                 // Saltar las instrucciones ya consumidas
                 for (int s = 0; s < instructionCount[id] && getline(f, linea); ++s);
-                // Leer siguiente instrucción
+                // Leer siguiente instruccion
                 if (!getline(f, linea)) {
-                    cout << "PE" << id << " sin más instrucciones (consumidas: "
+                    cout << "PE" << id << " sin mas instrucciones (consumidas: "
                          << instructionCount[id] << ")\n";
                     continue;
                 }
@@ -644,12 +788,12 @@ int main() {
             // Ejecutar las instrucciones en orden QoS
             vector<thread> threads;
             for (auto &inst : batch) {
-                // Volcar esa línea en un archivo temporal
+                // Volcar esa linea en un archivo temporal
                 ofstream tmp("PE_temp_" + to_string(inst.pe_id) + ".txt", ios::trunc);
                 tmp << inst.line << "\n";
                 tmp.close();
 
-                // Lanzar hilo para ejecutar UNA instrucción de ese PE
+                // Lanzar hilo para ejecutar UNA instruccion de ese PE
                 threads.emplace_back(pe_thread, ref(*pes[inst.pe_id]));
 
                 // Actualizar contadores
@@ -666,10 +810,10 @@ int main() {
 
     // Resultados finales
     INTERCONECT.Result();
-    cout << "\nSimulación completada. Total de instrucciones ejecutadas: "
+    cout << "\nSimulacion completada. Total de instrucciones ejecutadas: "
          << total_instruction << endl;
     cout << "Resultados guardados en MemoryInterconnect.txt y MessagesInterconnect.txt\n";
-    cout << "Versión de C++: " << __cplusplus << endl;
+    cout << "Version de C++: " << __cplusplus << endl;
     cout << "Presione cualquier tecla para salir..." << endl;
     getch();
     return 0;
