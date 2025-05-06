@@ -777,6 +777,10 @@ int main() {
                     string a1,a2,qos; iss >> a1 >> a2 >> qos;
                     if (qos.rfind("0x",0) == 0)
                         qosVal = hex_str_to_dec_int(qos.substr(2));
+                }  else if (opcode == "BROADCAST_INVALIDATE") {
+                    string a1,a2,qos; iss >> a1 >> a2 >> qos;
+                    if (qos.rfind("0x",0) == 0)
+                        qosVal = hex_str_to_dec_int(qos.substr(2));
                 }
 
                 batch.emplace_back(qosVal, id, linea, instructionCount[id]);
