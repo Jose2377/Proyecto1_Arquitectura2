@@ -768,7 +768,7 @@ int main() {
                 string opcode; iss >> opcode;
                 int qosVal = 255;
                 if (opcode == "WRITE_CACHE") {
-                    qosVal = 0;
+                    qosVal = hex_str_to_dec_int("0x00");
                 } else if (opcode == "WRITE_MEM") {
                     string a1,a2,a3,qos; iss >> a1 >> a2 >> a3 >> qos;
                     if (qos.rfind("0x",0) == 0)
@@ -821,7 +821,7 @@ int main() {
     cout << "Presione cualquier tecla para continuar..." << endl;
     getch();
 
-    cout << "Generando gráficas en python..." << endl;
+    cout << "Generando graficas en python..." << endl;
     system("python graficacion.py");
     return 0;
 }

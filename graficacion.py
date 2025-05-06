@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random
 from collections import defaultdict
+import re
 
 def clean_directory(directory_path):
     """Limpia todos los archivos dentro de un directorio."""
@@ -47,208 +48,132 @@ def organize_files():
         print(f"Eliminado {file}")
 
 # 1. Función para analizar el ancho de banda del Interconnect
-def analyze_interconnect_bandwidth(file_path="MessagesInterconnect.txt", pe_messages_dir="PE_messages"):
+def analyze_interconnect_bandwidth(num_cycles=10):
     """
-    Analiza el ancho de banda del Interconnect basado en los mensajes.
-    Utiliza los archivos PE_messages para determinar qué instrucciones afectan al Interconnect.
-    Cada WRITE_MEM o READ_MEM tiene una respuesta del Interconnect.
-    Cada Broadcast tiene 7 respuestas INV_ACK y 1 INV_COMPLETE.
+    Analiza el ancho de banda del Interconnect basado en los archivos PE#.txt.
+    Las instrucciones contribuyen al ancho de banda de la siguiente manera:
+    - WRITE_CACHE: +0
+    - READ_MEM o WRITE_MEM: +2
+    - BROADCAST_INVALIDATE: +9
+    
+    Args:
+        num_cycles: Número de ciclos a analizar
     """
-    if not os.path.exists(file_path):
-        print(f"Error: El archivo {file_path} no existe")
-        return None
+    # Inicializar contador de carga por ciclo
+    bandwidth_per_cycle = [0] * num_cycles
+    
+    # Analizar cada PE (0-7)
+    for pe_num in range(8):
+        filename = f"PE{pe_num}.txt"
         
-    if not os.path.exists(pe_messages_dir):
-        print(f"Error: El directorio {pe_messages_dir} no existe")
-        return None
-    
-    # Obtener la lista de archivos PE_messages
-    message_files = glob.glob(os.path.join(pe_messages_dir, "MessagesPE*.txt"))
-    
-    if not message_files:
-        print(f"Error: No se encontraron archivos MessagesPE*.txt en {pe_messages_dir}")
-        return None
-    
-    # Inicializar contador de instrucciones por ciclo
-    bandwidth_by_cycle = defaultdict(int)
-    max_cycle = 0
-    
-    # Analizar los archivos PE_messages para determinar qué instrucciones afectan al Interconnect y sus ciclos
-    pe_instructions_by_cycle = {}  # {pe_id: {cycle: [instrucciones]}}
-    
-    for file_path in message_files:
         try:
-            pe_id = int(os.path.basename(file_path).replace("MessagesPE", "").replace(".txt", ""))
-            if pe_id not in pe_instructions_by_cycle:
-                pe_instructions_by_cycle[pe_id] = {}
+            with open(filename, 'r') as file:
+                lines = file.readlines()
                 
-            current_cycle = 0
-            instructions_in_current_cycle = []
+                # Procesar hasta num_cycles líneas (o menos si el archivo es más corto)
+                for cycle, line in enumerate(lines[:num_cycles]):
+                    # Extraer el tipo de instrucción (primera palabra antes del espacio)
+                    instruction_match = re.match(r'^(\w+)', line.strip())
+                    if instruction_match:
+                        instruction_type = instruction_match.group(1)
+                        
+                        # Calcular la carga según el tipo de instrucción
+                        if instruction_type == "WRITE_CACHE":
+                            load = 0
+                        elif instruction_type in ["READ_MEM", "WRITE_MEM"]:
+                            load = 2
+                        elif instruction_type == "BROADCAST_INVALIDATE":
+                            load = 9
+                        else:
+                            load = 0  # Instrucción desconocida
+                        
+                        # Añadir la carga al ciclo correspondiente
+                        bandwidth_per_cycle[cycle] += load
             
-            with open(file_path, 'r') as file:
-                for line in file:
-                    line = line.strip()
-                    if not line:
-                        continue
-                        
-                    parts = line.split()
-                    if not parts:
-                        continue
-                        
-                    instruction_type = parts[0]
-                    
-                    # Añadir instrucción al ciclo actual
-                    if instruction_type not in instructions_in_current_cycle:
-                        instructions_in_current_cycle.append(instruction_type)
-                    
-                    # Si encontramos un WRITE_RESP o READ_RESP, terminamos el ciclo actual
-                    if instruction_type in ["WRITE_RESP", "READ_RESP"]:
-                        pe_instructions_by_cycle[pe_id][current_cycle] = instructions_in_current_cycle
-                        max_cycle = max(max_cycle, current_cycle)
-                        current_cycle += 1
-                        instructions_in_current_cycle = []
-                    # Si es WRITE_CACHE, también terminamos el ciclo
-                    elif instruction_type == "WRITE_CACHE" and instructions_in_current_cycle == ["WRITE_CACHE"]:
-                        pe_instructions_by_cycle[pe_id][current_cycle] = instructions_in_current_cycle
-                        max_cycle = max(max_cycle, current_cycle)
-                        current_cycle += 1
-                        instructions_in_current_cycle = []
+            print(f"Procesado {filename}: {len(lines[:num_cycles])} instrucciones")
                 
-                # Si quedaron instrucciones pendientes, las asignamos al último ciclo
-                if instructions_in_current_cycle:
-                    pe_instructions_by_cycle[pe_id][current_cycle] = instructions_in_current_cycle
-                    max_cycle = max(max_cycle, current_cycle)
-        except Exception as e:
-            print(f"Error al procesar el archivo {file_path} para ancho de banda: {e}")
-            continue
+        except FileNotFoundError:
+            print(f"Advertencia: No se encontró el archivo {filename}")
     
-    # Ahora calculamos el ancho de banda basado en las instrucciones que afectan al Interconnect
-    for pe_id, cycles in pe_instructions_by_cycle.items():
-        for cycle, instructions in cycles.items():
-            for instruction in instructions:
-                # Si es WRITE_CACHE, no afecta al Interconnect
-                if instruction == "WRITE_CACHE":
-                    continue
-                
-                # Las demás instrucciones sí afectan al Interconnect
-                bandwidth_by_cycle[cycle] += 1
-                
-                # WRITE_MEM o READ_MEM tienen una respuesta adicional
-                if instruction in ["WRITE_MEM", "READ_MEM"]:
-                    bandwidth_by_cycle[cycle] += 1
-                
-                # BROADCAST_INVALIDATE tiene 7 INV_ACK y 1 INV_COMPLETE
-                if instruction == "BROADCAST_INVALIDATE":
-                    bandwidth_by_cycle[cycle] += 8
-    
-    # Asegurarse de que hay datos para todos los ciclos hasta el máximo
-    cycles = list(range(0, min(max_cycle + 1, 11)))
-    bandwidth = [bandwidth_by_cycle.get(cycle, 0) for cycle in cycles]
-    
-    return cycles, bandwidth
+    return bandwidth_per_cycle
 
 # 2. Función para analizar el tráfico en cada esquema
-def analyze_traffic_by_scheme(pe_messages_dir="PE_messages"):
+def analyze_pe_traffic(num_cycles=10, num_pes=8):
     """
-    Analiza el tráfico en cada esquema usando los archivos PE_messages.
-    Cada PE ejecuta solo 1 instrucción por ciclo.
-    Si es WRITE_MEM o READ_MEM, reciben una respuesta (2 instrucciones en total).
-    Si alguien hace un BROADCAST, se suma 1 instrucción a todos los PEs.
+    Analiza el tráfico de instrucciones por PE basado en los archivos PE#.txt.
+    Las instrucciones contribuyen al tráfico de la siguiente manera:
+    - WRITE_CACHE: +1 para el PE que lo ejecuta
+    - READ_MEM o WRITE_MEM: +2 para el PE que lo ejecuta
+    - BROADCAST_INVALIDATE: +2 para el PE que lo emite, +1 para todos los demás PEs
+    
+    Args:
+        num_cycles: Número de ciclos a analizar
+        num_pes: Número total de PEs en el sistema
+    
+    Returns:
+        traffic_per_pe_cycle: Matriz con el tráfico por PE y ciclo
     """
-    if not os.path.exists(pe_messages_dir):
-        print(f"Error: El directorio {pe_messages_dir} no existe")
-        return None
+    # Inicializar matriz de tráfico [ciclo][pe]
+    traffic_per_pe_cycle = np.zeros((num_cycles, num_pes), dtype=int)
     
-    # Obtener la lista de archivos PE_messages
-    message_files = glob.glob(os.path.join(pe_messages_dir, "MessagesPE*.txt"))
-    
-    if not message_files:
-        print(f"Error: No se encontraron archivos MessagesPE*.txt en {pe_messages_dir}")
-        return None
-    
-    # Inicializar contador de mensajes por PE y por ciclo
-    traffic_by_pe_cycle = defaultdict(lambda: defaultdict(int))
-    pe_count = len(message_files)
-    max_cycle = 0
-    
-    # Analizar cada archivo de PE para determinar ciclos e instrucciones
-    pe_instructions_by_cycle = {}  # {pe_id: {cycle: [instrucciones]}}
-    broadcast_cycles = {}  # {cycle: pe_id_que_envio}
-    
-    for file_path in message_files:
+    # Primero leer todas las instrucciones de todos los PEs
+    all_instructions = []
+    for pe_num in range(num_pes):
+        pe_instructions = []
+        filename = f"PE{pe_num}.txt"
+        
         try:
-            pe_id = int(os.path.basename(file_path).replace("MessagesPE", "").replace(".txt", ""))
-            if pe_id not in pe_instructions_by_cycle:
-                pe_instructions_by_cycle[pe_id] = {}
+            with open(filename, 'r') as file:
+                lines = file.readlines()
+                for line in lines[:num_cycles]:
+                    pe_instructions.append(line.strip())
                 
-            current_cycle = 0
-            instructions_in_current_cycle = []
-            
-            with open(file_path, 'r') as file:
-                for line in file:
-                    line = line.strip()
-                    if not line:
-                        continue
-                        
-                    parts = line.split()
-                    if not parts:
-                        continue
-                        
-                    instruction_type = parts[0]
+                # Si hay menos instrucciones que ciclos, rellena con ''
+                if len(pe_instructions) < num_cycles:
+                    pe_instructions.extend([''] * (num_cycles - len(pe_instructions)))
                     
-                    # Añadir instrucción al ciclo actual
-                    if instruction_type not in instructions_in_current_cycle:
-                        instructions_in_current_cycle.append(instruction_type)
-                    
-                    # Identificar BROADCAST_INVALIDATE
-                    if instruction_type == "BROADCAST_INVALIDATE":
-                        broadcast_cycles[current_cycle] = pe_id
-                    
-                    # Si encontramos un WRITE_RESP o READ_RESP, terminamos el ciclo actual
-                    if instruction_type in ["WRITE_RESP", "READ_RESP"]:
-                        pe_instructions_by_cycle[pe_id][current_cycle] = instructions_in_current_cycle
-                        max_cycle = max(max_cycle, current_cycle)
-                        current_cycle += 1
-                        instructions_in_current_cycle = []
-                    # Si es WRITE_CACHE, también terminamos el ciclo
-                    elif instruction_type == "WRITE_CACHE" and instructions_in_current_cycle == ["WRITE_CACHE"]:
-                        pe_instructions_by_cycle[pe_id][current_cycle] = instructions_in_current_cycle
-                        max_cycle = max(max_cycle, current_cycle)
-                        current_cycle += 1
-                        instructions_in_current_cycle = []
+            print(f"Procesado {filename}: {len(lines[:num_cycles])} instrucciones")
                 
-                # Si quedaron instrucciones pendientes, las asignamos al último ciclo
-                if instructions_in_current_cycle:
-                    pe_instructions_by_cycle[pe_id][current_cycle] = instructions_in_current_cycle
-                    max_cycle = max(max_cycle, current_cycle)
-        except Exception as e:
-            print(f"Error al procesar el archivo {file_path} para tráfico: {e}")
-            continue
-    
-    # Calcular el tráfico basado en las instrucciones y reglas
-    for pe_id, cycles in pe_instructions_by_cycle.items():
-        for cycle, instructions in cycles.items():
-            # Siempre hay 1 instrucción base por ciclo
-            traffic_by_pe_cycle[pe_id][cycle] += 1
+        except FileNotFoundError:
+            print(f"Advertencia: No se encontró el archivo {filename}")
+            pe_instructions = [''] * num_cycles
             
-            # Si hay READ_MEM o WRITE_MEM, añadir 1 más por la respuesta
-            if any(instr in ["READ_MEM", "WRITE_MEM"] for instr in instructions):
-                traffic_by_pe_cycle[pe_id][cycle] += 1
+        all_instructions.append(pe_instructions)
     
-    # Agregar 1 instrucción a todos los PEs en ciclos con BROADCAST
-    for cycle, sender_pe in broadcast_cycles.items():
-        for pe_id in range(pe_count):
-            traffic_by_pe_cycle[pe_id][cycle] += 1
+    # Analizar ciclo por ciclo
+    for cycle in range(num_cycles):
+        # Primero buscar si hay algún BROADCAST_INVALIDATE en este ciclo
+        broadcast_pes = []
+        for pe_num in range(num_pes):
+            instr = all_instructions[pe_num][cycle] if cycle < len(all_instructions[pe_num]) else ''
+            if instr and instr.startswith("BROADCAST_INVALIDATE"):
+                broadcast_pes.append(pe_num)
+        
+        # Procesar instrucciones para cada PE en este ciclo
+        for pe_num in range(num_pes):
+            instr = all_instructions[pe_num][cycle] if cycle < len(all_instructions[pe_num]) else ''
+            
+            if instr:
+                # Extraer el tipo de instrucción
+                instruction_match = re.match(r'^(\w+)', instr)
+                if instruction_match:
+                    instruction_type = instruction_match.group(1)
+                    
+                    # Calcular el tráfico según el tipo de instrucción
+                    if instruction_type == "WRITE_CACHE":
+                        traffic_per_pe_cycle[cycle][pe_num] += 1
+                    elif instruction_type in ["READ_MEM", "WRITE_MEM"]:
+                        traffic_per_pe_cycle[cycle][pe_num] += 2
+                    elif instruction_type == "BROADCAST_INVALIDATE":
+                        traffic_per_pe_cycle[cycle][pe_num] += 2
+        
+        # Añadir +1 a todos los PEs excepto los que emitieron el broadcast
+        for broadcast_pe in broadcast_pes:
+            for pe_num in range(num_pes):
+                if pe_num != broadcast_pe:
+                    traffic_per_pe_cycle[cycle][pe_num] += 1
     
-    # Preparar los datos para graficar
-    cycles = list(range(0, min(max_cycle + 1, 11)))
-    traffic_data = {}
-    
-    for pe_id in range(pe_count):
-        traffic = [traffic_by_pe_cycle[pe_id].get(cycle, 0) for cycle in cycles]
-        traffic_data[f"PE{pe_id}"] = traffic
-    
-    return cycles, traffic_data
+    return traffic_per_pe_cycle
 
 # 3. Función para analizar los tiempos de ejecución
 def analyze_execution_times(file_path="InstructionTiming.csv", pe_messages_dir="PE_messages"):
@@ -384,44 +309,68 @@ def analyze_execution_times(file_path="InstructionTiming.csv", pe_messages_dir="
         return None
     
 # Función para generar las gráficas
-def generate_graphs():
+def generate_graphs(bandwidth_data, traffic_data, num_pes=8):
     # 1. Gráfica de ancho de banda del Interconnect
-    bandwidth_data = analyze_interconnect_bandwidth()
-    if bandwidth_data:
-        cycles, bandwidth = bandwidth_data
-        plt.figure(figsize=(10, 6))
-        plt.bar(cycles, bandwidth, color='blue')
-        plt.title('Ancho de Banda del Interconnect por Ciclo')
-        plt.xlabel('Ciclo')
-        plt.ylabel('Número de Instrucciones')
-        plt.xticks(cycles)
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-        plt.savefig('bandwidth_graph.png')
-        plt.close()
-        print("Gráfica de ancho de banda generada: bandwidth_graph.png")
+    cycles = list(range(1, len(bandwidth_data) + 1))
+    
+    plt.figure(figsize=(12, 6))
+    plt.bar(cycles, bandwidth_data, color='blue', alpha=0.7)
+    plt.axhline(y=np.mean(bandwidth_data), color='r', linestyle='--', label=f'Promedio: {np.mean(bandwidth_data):.2f}')
+    
+    plt.title('Ancho de Banda del Interconnect por Ciclo')
+    plt.xlabel('Ciclo')
+    plt.ylabel('Carga en el Interconnect')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.xticks(cycles)
+    plt.legend()
+    
+    # Guardar el gráfico
+    plt.savefig('1anchoBanda_interconnect.png')
+    plt.close()
+    
+    print("Gráfico guardado como '1anchoBanda_interconnect.png'")
     
     # 2. Gráfica de tráfico por esquema
-    traffic_data = analyze_traffic_by_scheme()
-    if traffic_data:
-        cycles, traffic_by_pe = traffic_data
-        plt.figure(figsize=(12, 7))
-        
-        bar_width = 0.1
-        index = np.arange(len(cycles))
-        
-        for i, (pe_name, traffic) in enumerate(traffic_by_pe.items()):
-            plt.bar(index + i*bar_width, traffic, bar_width, label=pe_name)
-        
-        plt.title('Tráfico por PE y Ciclo')
-        plt.xlabel('Ciclo')
-        plt.ylabel('Número de Instrucciones')
-        plt.xticks(index + bar_width * (len(traffic_by_pe) / 2 - 0.5), cycles)
-        plt.legend()
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-        plt.tight_layout()
-        plt.savefig('traffic_graph.png')
-        plt.close()
-        print("Gráfica de tráfico generada: traffic_graph.png")
+    num_cycles = traffic_data.shape[0]
+    cycles = list(range(1, num_cycles + 1))
+    
+    # Gráfico 1: Tráfico total por ciclo
+    plt.figure(figsize=(15, 10))
+    plt.subplot(2, 1, 1)
+    
+    total_traffic_per_cycle = traffic_data.sum(axis=1)
+    plt.bar(cycles, total_traffic_per_cycle, color='blue', alpha=0.7)
+    plt.axhline(y=np.mean(total_traffic_per_cycle), color='r', linestyle='--', 
+                label=f'Promedio: {np.mean(total_traffic_per_cycle):.2f}')
+    
+    plt.title('Tráfico Total del Sistema por Ciclo')
+    plt.xlabel('Ciclo')
+    plt.ylabel('Tráfico Total')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.xticks(cycles)
+    plt.legend()
+    
+    # Gráfico: Tráfico por PE
+    plt.figure(figsize=(14, 8))
+    
+    width = 0.8 / num_pes
+    for pe in range(num_pes):
+        plt.bar([c + pe * width for c in cycles], traffic_data[:, pe], 
+                width=width, label=f'PE{pe}', alpha=0.7)
+    
+    plt.title('Tráfico por PE y Ciclo', fontsize=16)
+    plt.xlabel('Ciclo', fontsize=14)
+    plt.ylabel('Tráfico', fontsize=14)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.xticks(np.array(cycles) + width * num_pes / 2 - width / 2, cycles)
+    plt.legend(fontsize=12)
+    
+    plt.tight_layout()
+    plt.savefig('2trafico_PE.png')
+    plt.close()
+    
+    print("Gráfico guardado como '2trafico_PE.png'")
+    
     
     # 3. Gráfica de tiempos de ejecución
     exec_time_data = analyze_execution_times()
@@ -440,9 +389,9 @@ def generate_graphs():
         plt.legend()
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.tight_layout()
-        plt.savefig('execution_time_graph.png')
+        plt.savefig('3tiempo_ejecucion.png')
         plt.close()
-        print("Gráfica de tiempos de ejecución generada: execution_time_graph.png")
+        print("Gráfica de tiempos de ejecución generada: 3tiempo_ejecucion.png")
 
 
 if __name__ == "__main__":
@@ -450,5 +399,7 @@ if __name__ == "__main__":
     organize_files()
     print("Organización de archivos completada.")
     print("Generando gráficas de rendimiento...")
-    generate_graphs()
+    bandwidth_data = analyze_interconnect_bandwidth(num_cycles=10)
+    traffic_data = analyze_pe_traffic(num_cycles=10, num_pes=8)
+    generate_graphs(bandwidth_data, traffic_data)
     print("Proceso completado.")
