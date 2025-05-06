@@ -379,7 +379,7 @@ class Interconect{
             // Recorre todos los PEs y envia la instruccion INV_BACK, excepto el PE que origino el BROADCAST_INVALIDATE
             for (int pe_id = 0; pe_id < 8; ++pe_id) {
                 if (pe_id != src_pe) {
-                    string message = "INV_ACK (PE" + to_string(pe_id) + "), QoS: " + qos;
+                    string message = "INV_ACK (PE" + to_string(pe_id) + "), QoS: " + qos + "\n";
                     KeepMessage(message);  // Guardamos la respuesta INV_BACK
                     cout << message << endl;
                 }
@@ -814,7 +814,10 @@ int main() {
          << total_instruction << endl;
     cout << "Resultados guardados en MemoryInterconnect.txt y MessagesInterconnect.txt\n";
     cout << "Version de C++: " << __cplusplus << endl;
-    cout << "Presione cualquier tecla para salir..." << endl;
+    cout << "Presione cualquier tecla para continuar..." << endl;
     getch();
+
+    cout << "Generando gráficas en python..." << endl;
+    system("python graficacion.py");
     return 0;
 }
