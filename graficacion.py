@@ -311,11 +311,12 @@ def analyze_execution_times(file_path="InstructionTiming.csv", pe_messages_dir="
 # Función para generar las gráficas
 def generate_graphs(bandwidth_data, traffic_data, num_pes=8):
     # 1. Gráfica de ancho de banda del Interconnect
-    cycles = list(range(1, len(bandwidth_data) + 1))
+    # Hacemos que los ciclos empiecen en 0
+    cycles = list(range(0, len(bandwidth_data)))
     
     plt.figure(figsize=(12, 6))
-    plt.bar(cycles, bandwidth_data, color='blue', alpha=0.7)
-    plt.axhline(y=np.mean(bandwidth_data), color='r', linestyle='--', label=f'Promedio: {np.mean(bandwidth_data):.2f}')
+    plt.bar(cycles, bandwidth_data, alpha=0.7)
+    plt.axhline(y=np.mean(bandwidth_data), linestyle='--', label=f'Promedio: {np.mean(bandwidth_data):.2f}')
     
     plt.title('Ancho de Banda del Interconnect por Ciclo')
     plt.xlabel('Ciclo')
@@ -323,62 +324,50 @@ def generate_graphs(bandwidth_data, traffic_data, num_pes=8):
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.xticks(cycles)
     plt.legend()
-    
-    # Guardar el gráfico
     plt.savefig('1anchoBanda_interconnect.png')
     plt.close()
-    
     print("Gráfico guardado como '1anchoBanda_interconnect.png'")
     
     # 2. Gráfica de tráfico por esquema
     num_cycles = traffic_data.shape[0]
-    cycles = list(range(1, num_cycles + 1))
+    cycles = list(range(0, num_cycles))
     
     # Gráfico 1: Tráfico total por ciclo
     plt.figure(figsize=(15, 10))
-    plt.subplot(2, 1, 1)
-    
     total_traffic_per_cycle = traffic_data.sum(axis=1)
-    plt.bar(cycles, total_traffic_per_cycle, color='blue', alpha=0.7)
-    plt.axhline(y=np.mean(total_traffic_per_cycle), color='r', linestyle='--', 
+    plt.bar(cycles, total_traffic_per_cycle, alpha=0.7)
+    plt.axhline(y=np.mean(total_traffic_per_cycle), linestyle='--', 
                 label=f'Promedio: {np.mean(total_traffic_per_cycle):.2f}')
+
     
-    plt.title('Tráfico Total del Sistema por Ciclo')
-    plt.xlabel('Ciclo')
-    plt.ylabel('Tráfico Total')
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    plt.xticks(cycles)
-    plt.legend()
-    
-    # Gráfico: Tráfico por PE
+    # Gráfico 2: Tráfico por PE
     plt.figure(figsize=(14, 8))
-    
     width = 0.8 / num_pes
     for pe in range(num_pes):
-        plt.bar([c + pe * width for c in cycles], traffic_data[:, pe], 
-                width=width, label=f'PE{pe}', alpha=0.7)
+        # desplazamos cada serie para que coincida con el ciclo correcto
+        x = [c + pe * width for c in cycles]
+        plt.bar(x, traffic_data[:, pe], width=width, label=f'PE{pe}', alpha=0.7)
     
-    plt.title('Tráfico por PE y Ciclo', fontsize=16)
-    plt.xlabel('Ciclo', fontsize=14)
-    plt.ylabel('Tráfico', fontsize=14)
+    plt.title('Tráfico por PE y Ciclo')
+    plt.xlabel('Ciclo')
+    plt.ylabel('Tráfico')
     plt.grid(axis='y', linestyle='--', alpha=0.7)
-    plt.xticks(np.array(cycles) + width * num_pes / 2 - width / 2, cycles)
+    # Ajustamos las etiquetas para que caigan en los ciclos originales
+    plt.xticks(cycles, cycles)
     plt.legend(fontsize=12)
-    
     plt.tight_layout()
     plt.savefig('2trafico_PE.png')
     plt.close()
-    
     print("Gráfico guardado como '2trafico_PE.png'")
-    
     
     # 3. Gráfica de tiempos de ejecución
     exec_time_data = analyze_execution_times()
     if exec_time_data:
         cycles, exec_times_by_pe = exec_time_data
-        plt.figure(figsize=(12, 7))
+        # Aseguramos que cycles también comience en 0
+        cycles = list(range(0, len(cycles)))
         
-        # Crear un gráfico de líneas para cada PE
+        plt.figure(figsize=(12, 7))
         for pe_name, times in exec_times_by_pe.items():
             plt.plot(cycles, times, marker='o', label=pe_name)
         
@@ -391,7 +380,8 @@ def generate_graphs(bandwidth_data, traffic_data, num_pes=8):
         plt.tight_layout()
         plt.savefig('3tiempo_ejecucion.png')
         plt.close()
-        print("Gráfica de tiempos de ejecución generada: 3tiempo_ejecucion.png")
+        print("Gráfico de tiempos de ejecución generada: 3tiempo_ejecucion.png")
+
 
 
 if __name__ == "__main__":

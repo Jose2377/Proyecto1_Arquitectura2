@@ -53,34 +53,51 @@ std::uniform_real_distribution<double> variance_dist(-VARIANCE_FACTOR, VARIANCE_
 
 // Funcion para calcular el tiempo simulado segun el tipo de instruccion y tamaño de datos
 double calculateSimulatedTime(const string& instruction_type, int data_size) {
-    // Calculamos el tiempo base segun el tipo de instruccion
+    // Factor común de tamaño
+    double size_time = data_size * DATA_SIZE_FACTOR;
+
+    // Tiempo base + offsets para garantizar jerarquía
     double base_time = 0.0;
-    
     if (instruction_type == "WRITE_CACHE") {
-        base_time = BASE_WRITE_CACHE_TIME + (data_size * DATA_SIZE_FACTOR) / 8.0;
-    } else if (instruction_type == "WRITE_MEM") {
-        base_time = BASE_WRITE_MEM_TIME + (data_size * DATA_SIZE_FACTOR) / 4.0;
-    } else if (instruction_type == "READ_MEM") {
-        base_time = BASE_READ_MEM_TIME + (data_size * DATA_SIZE_FACTOR) / 6.0;
-    } else if (instruction_type == "BROADCAST_INVALIDATE") {
-        base_time = BASE_BROADCAST_INV_TIME;
-    } else {
-        // Instruccion desconocida
+        // El más rápido, sin offset extra
+        base_time = BASE_WRITE_CACHE_TIME
+                  + size_time / 8.0
+                  + 0.0;           // offset 0.0
+    }
+    else if (instruction_type == "BROADCAST_INVALIDATE") {
+        // Ligeramente más lento que cache
+        base_time = BASE_BROADCAST_INV_TIME
+                  + /* no contribuye por data_size */ 0.0
+                  + 0.05;          // offset 0.05
+    }
+    else if (instruction_type == "READ_MEM") {
+        // Más lento que invalidate, pero más rápido que write
+        base_time = BASE_READ_MEM_TIME
+                  + size_time / 16.0
+                  + 0.10;          // offset 0.10
+    }
+    else if (instruction_type == "WRITE_MEM") {
+        // El más caro: divisor más pequeño + offset mayor
+        base_time = BASE_WRITE_MEM_TIME
+                  + size_time / 4.0
+                  + 0.20;          // offset 0.20
+    }
+    else {
+        // Instrucción desconocida
         base_time = 1.0;
     }
-    
-    // Agregamos varianza aleatoria con precision de 4 decimales
-    double random_variance = variance_dist(gen);
-    // Truncar a 4 decimales (multiplicar por 10000, truncar, dividir por 10000)
+
+    // Varianza aleatoria **no negativa** (evita que un write acabe por debajo de un read)
+    double random_variance = fabs(variance_dist(gen));
     random_variance = trunc(random_variance * 10000.0) / 10000.0;
-    
-    // Aseguramos que el tiempo nunca sea negativo
+
+    // Suma todo y asegúrate de mínimo 0.5
     double final_time = base_time + random_variance;
-    if (final_time < 0.5) final_time = 0.5;  // Minimo tiempo de 0.5
-    
-    // Truncar el resultado a 4 decimales
+    if (final_time < 0.5) final_time = 0.5;
+
     return trunc(final_time * 10000.0) / 10000.0;
 }
+
 
 // Funcion para registrar tiempo de una instruccion
 void logInstructionTime(const string& instruction_type, const string& pe_id, int data_size, int cycle) {
@@ -292,7 +309,7 @@ class Interconect{
             int C = temp0%128;
 
             // Calcula el tamaño de datos en bits
-            int data_size = hex_str_to_dec_int(OBJ) * 8;
+            int data_size = hex_str_to_dec_int(OBJ);
             
             // Registra el tiempo simulado
             logInstructionTime("READ_MEM", DEST, data_size, ciclos);
