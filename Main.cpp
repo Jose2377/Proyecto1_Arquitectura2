@@ -286,6 +286,7 @@ class Interconect{
             // Guarda la instruccion en los mensajes
             temp1 = "WRITE_RESP " + DEST + ", 0x1, "+ PRIO + "\n";
             KeepMessage(temp1);
+            Result();
 
             // Devuelve el mensaje de memoria
             return temp1;
@@ -304,7 +305,7 @@ class Interconect{
             DIR.erase(0,2);
             OBJ.erase(0,2);
 
-            int temp0 = stoi(DIR);
+            int temp0 = hex_str_to_dec_int(DIR);
             int L = temp0/128;
             int C = temp0%128;
 
@@ -609,7 +610,7 @@ class PE{
             int temp0 = DIR.length();
             DIR.erase(temp0-1,1);
             DIR.erase(0,2);
-            temp0 = stoi(DIR);
+            temp0 = hex_str_to_dec_int(DIR);
             int L = temp0/128;
             int C = temp0%128;
 
@@ -637,7 +638,7 @@ class PE{
             int temp0 = OBJ.length();
             OBJ.erase(temp0-1,1);
             OBJ.erase(0,2);
-            temp0 = stoi(DIR);
+            temp0 = hex_str_to_dec_int(DIR);
             int L = temp0/128;
             int C = temp0%128;
 
