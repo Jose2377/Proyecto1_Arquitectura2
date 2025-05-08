@@ -232,14 +232,14 @@ string bin_str_to_hex_str(string binario) {
 class Interconect{
     private: 
         string messages;
-        // Memoria Compartida, 4096 memoria total
-        // Alineada en 4 byts (32 bits)
-        bool memoria[32][4096]; 
+        static const int IC_BITS_PER_LINE = 32;
+        static const int IC_NUM_LINES      = 4096;
+        bool memoria[IC_BITS_PER_LINE][IC_NUM_LINES];
     public:
         Interconect(){
             messages = "";
-            for (int i = 0; i < 32; ++i){
-                for (int j = 0; j < 4096; ++j){
+            for (int i = 0; i < IC_BITS_PER_LINE; ++i){
+                for (int j = 0; j < IC_NUM_LINES; ++j){
                     memoria[i][j] = 0;
                 }
             }
@@ -259,8 +259,8 @@ class Interconect{
             DIR.erase(0,2);
 
             temp0 = hex_str_to_dec_int(DIR);
-            int L = temp0/128;
-            int C = temp0%128;
+            int L = temp0/IC_BITS_PER_LINE;
+            int C = temp0%IC_BITS_PER_LINE;
 
             // Registra el tiempo simulado
             int data_size = OBJ.length(); // Tamaño en bits
@@ -278,7 +278,7 @@ class Interconect{
                 }
                 C++;
                 // Salta a la siguente linea en caso de overflow
-                if (C == 32){
+                if (C == IC_BITS_PER_LINE){
                     C = 0;
                     L++;
                 }
@@ -306,8 +306,8 @@ class Interconect{
             OBJ.erase(0,2);
 
             int temp0 = hex_str_to_dec_int(DIR);
-            int L = temp0/128;
-            int C = temp0%128;
+            int L = temp0/IC_BITS_PER_LINE;
+            int C = temp0%IC_BITS_PER_LINE;
 
             // Calcula el tamaño de datos en bits
             int data_size = hex_str_to_dec_int(OBJ);
@@ -327,7 +327,7 @@ class Interconect{
                 }
                 C++;
                 // Salta a la siguente linea en caso de overflow
-                if (C == 32){
+                if (C == IC_BITS_PER_LINE){
                    C = 0;
                    L++;
                 }
@@ -349,8 +349,8 @@ class Interconect{
         // Imprime la memoria y mensajes del Interconnect
         void Result(){
             ofstream MyFile("MemoryInterconnect.txt");
-            for (int i = 0; i < 4096; ++i){
-                for (int j = 0; j < 32; ++j){
+            for (int i = 0; i < IC_NUM_LINES; ++i){
+                for (int j = 0; j < IC_BITS_PER_LINE; ++j){
                     if (memoria[j][i] == 0){
                         MyFile << "0";
                     }
@@ -376,8 +376,8 @@ class Interconect{
         //Reiniciar memoria
         void Reset(){
             messages = "";
-            for (int i = 0; i < 32; ++i){
-                for (int j = 0; j < 4096; ++j){
+            for (int i = 0; i < IC_BITS_PER_LINE; ++i){
+                for (int j = 0; j < IC_NUM_LINES; ++j){
                     memoria[i][j] = 0;
                 }
             }
