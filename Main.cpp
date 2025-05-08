@@ -234,12 +234,12 @@ class Interconect{
         string messages;
         // Memoria Compartida, 4096 memoria total
         // Alineada en 4 byts (32 bits)
-        bool memoria[32][128]; 
+        bool memoria[32][4096]; 
     public:
         Interconect(){
             messages = "";
             for (int i = 0; i < 32; ++i){
-                for (int j = 0; j < 128; ++j){
+                for (int j = 0; j < 4096; ++j){
                     memoria[i][j] = 0;
                 }
             }
@@ -349,7 +349,7 @@ class Interconect{
         // Imprime la memoria y mensajes del Interconnect
         void Result(){
             ofstream MyFile("MemoryInterconnect.txt");
-            for (int i = 0; i < 128; ++i){
+            for (int i = 0; i < 4096; ++i){
                 for (int j = 0; j < 32; ++j){
                     if (memoria[j][i] == 0){
                         MyFile << "0";
@@ -377,7 +377,7 @@ class Interconect{
         void Reset(){
             messages = "";
             for (int i = 0; i < 32; ++i){
-                for (int j = 0; j < 128; ++j){
+                for (int j = 0; j < 4096; ++j){
                     memoria[i][j] = 0;
                 }
             }
